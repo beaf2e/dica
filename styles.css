@@ -154,29 +154,46 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 .thumb-btn { background-size: cover; background-position: center; border: 1px solid rgba(255, 255, 255, 0.25); }
 
 /* ──────────────────────────────────────────────
-   가로 모드 — 컨트롤을 우측 세로 도크로 재배치
+   가로 모드 — 뷰파인더 풀스크린 + 우측 오버레이 컨트롤(애플 카메라식)
    ────────────────────────────────────────────── */
 @media (orientation: landscape) {
-  .cam { flex-direction: row; }
-  .dock {
-    flex-direction: column; justify-content: center; gap: 22px;
-    width: 168px; height: 100%;
-    padding: 14px calc(var(--sr) + 12px) 14px 12px;
+  .cam { display: block; }                       /* flex 해제 */
+  .stage { position: absolute; inset: 0; }       /* 뷰파인더가 화면 전체를 채움 */
+
+  .dock {                                         /* 컨트롤은 우측에 오버레이(자리 안 차지) */
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 6;
+    width: 150px; height: auto;
+    flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    padding: 14px calc(var(--sr) + 10px) 14px 10px;
+    background: linear-gradient(to left, rgba(0, 0, 0, 0.6) 42%, rgba(0, 0, 0, 0));
+    border-top: none;
   }
-  .mode-switch { flex-direction: column; gap: 16px; }
+  /* 셔터를 세로 중앙에(order로 가운데), 모드 위·프리셋 아래 */
+  .mode-switch { order: 1; flex-direction: column; gap: 12px; }
+  .shutter-row { order: 2; flex-direction: column; width: auto; max-width: none; padding: 0; gap: 20px; }
+  .preset-wheel { order: 3; }
 
   .preset-wheel.vertical {
-    width: 130px; height: 168px; max-width: none;
+    width: 118px; height: 140px; max-width: none;
     -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
             mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
   }
-  .preset-wheel.vertical .pw-track {
-    flex-direction: column; left: 0; top: 50%; width: 100%; height: auto;
-  }
-  .preset-wheel.vertical .pw-item { padding: 9px 0; height: auto; }
+  .preset-wheel.vertical .pw-track { flex-direction: column; left: 0; top: 50%; width: 100%; height: auto; }
+  .preset-wheel.vertical .pw-item { padding: 8px 0; height: auto; }
   .preset-wheel.vertical .pw-marker { left: -1px; bottom: auto; top: 50%; transform: translateY(-50%); }
 
-  .shutter-row { flex-direction: column-reverse; width: auto; max-width: none; padding: 0; gap: 26px; }
+  /* 줌 알약: 셔터 왼쪽(엄지 근처), 세로 중앙 */
+  .zoom-pill { left: auto; right: calc(var(--sr) + 162px); top: 50%; bottom: auto; transform: translateY(-50%); }
+  .zoom-pill:active { transform: translateY(-50%) scale(0.9); }
+
+  /* 줌 다이얼: 풀스크린 하단 중앙(우측 도크와 안 겹침) */
+  .zoom-dial { left: calc(50% - 80px); bottom: calc(var(--sb) + 10px); }
+}
+
+/* 빌드 버전 뱃지(캐시 확인용) */
+.ver {
+  position: absolute; left: calc(var(--sl) + 10px); bottom: calc(var(--sb) + 8px); z-index: 3;
+  font-size: 9px; letter-spacing: 0.1em; color: rgba(255, 255, 255, 0.42); pointer-events: none;
 }
 
 /* ──────────────────────────────────────────────

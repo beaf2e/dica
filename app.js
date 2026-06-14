@@ -265,7 +265,7 @@ function loop() {
   const crop = state.lens === "ultra" ? 1 : state.dig;
   renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop);
   updateZoomPill();
-  if (state.dialOn) { const z = dispZoom(); drawDial(z); dom.dialVal.textContent = fmtZoom(z) + "×"; }
+  if (state.dialOn) renderDial();
 }
 function startLoop() { if (!state.rafId) loop(); }
 function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
@@ -488,11 +488,25 @@ function drawDial(z) {
   ctx.beginPath(); ctx.moveTo(cx, apexY - 0.12 * H); ctx.lineTo(cx, apexY + 0.05 * H); ctx.stroke();
 }
 
+/* 다이얼 1회 렌더(루프 의존 제거 — 핀치 즉시 그림) */
+function renderDial() {
+  if (!state.dialOn) return;
+  const z = dispZoom();
+  drawDial(z);
+  if (dom.dialVal) dom.dialVal.textContent = fmtZoom(z) + "×";
+}
+
 let dialHideT = 0;
 function showDial() {
   clearTimeout(dialHideT);
   if (!dom.dialWrap) return;
-  if (!state.dialOn) { state.dialOn = true; sizeDial(); dom.dialWrap.classList.add("show"); if (dom.zoomPill) dom.zoomPill.classList.add("dim"); }
+  if (!state.dialOn) {
+    state.dialOn = true;
+    sizeDial();
+    dom.dialWrap.classList.add("show");
+    if (dom.zoomPill) dom.zoomPill.classList.add("dim");
+  }
+  renderDial();                 // 핀치 감지 즉시 그려서 루프 타이밍과 무관하게 등장
 }
 function scheduleHideDial() {
   clearTimeout(dialHideT);
