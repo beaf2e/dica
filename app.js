@@ -45,9 +45,9 @@ const dom = {
   shot: $("#shotCanvas"),
   fileInput: $("#fileInput"),
   zoomCluster: $("#zoomCluster"),
-  dialWrap: $("#zoomDial"),
-  dialVal: $("#dialVal"),
-  dial: $("#dial"),
+  zoomArc: $("#zoomArc"),
+  zaDial: $("#zaDial"),
+  zaValue: $("#zaValue"),
 };
 
 /* ── 필름 프리셋 (ToyDigi 이식) ─────────────────────────────────
@@ -93,7 +93,7 @@ const state = {
   dig: 1, digTarget: 1,         // 와이드 디지털 줌(이징값/목표값)
   zoomSteps: [1, 2, 3],
   switching: false,
-  dialOn: false,
+  arcOn: false,
 };
 
 const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
@@ -191,6 +191,7 @@ async function init() {
   buildWheel();
   setMode("photo");
   buildZoomCluster();
+  buildZoomDial();
   const granted = (() => { try { return localStorage.getItem("dica_granted") === "1"; } catch (_) { return false; } })();
   if (granted) {
     try { await acquire(); return; } catch (_) { /* 만료/거부 → 프라이머 */ }
@@ -208,7 +209,6 @@ function layout() {
   if (long > LIVE_CAP) { const k = LIVE_CAP / long; w *= k; h *= k; }
   dom.view.width = Math.max(2, Math.round(w));
   dom.view.height = Math.max(2, Math.round(h));
-  sizeDial();
   // 휠 방향 전환
   dom.wheel.classList.toggle("vertical", state.landscape);
   dom.track.classList.toggle("vertical", state.landscape);
@@ -324,7 +324,7 @@ function loop() {
   const crop = state.lens === "ultra" ? 1 : state.dig;
   renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop, false);
   updateZoomCluster();
-  if (state.dialOn) renderDial();
+  if (state.arcOn) renderZoomArc();
 }
 function startLoop() { if (!state.rafId) loop(); }
 function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
@@ -433,6 +433,7 @@ async function detectLenses() {
   } catch (_) {}
   state.zoomSteps = state.lensIds.ultra ? [0.5, 1, 2, 3] : [1, 2, 3];
   buildZoomCluster();
+  buildZoomDial();
 }
 
 /* 물리 렌즈 전환 (deviceId exact) */
@@ -480,7 +481,7 @@ function buildZoomCluster() {
     b.className = "zc-btn";
     b.dataset.zoom = String(s);
     b.textContent = fmtZoom(s) + "×";
-    b.addEventListener("click", () => { requestZoom(s); showDial(); scheduleHideDial(); haptic(8); });
+    b.addEventListener("click", () => { requestZoom(s); showZoomArc(); scheduleHideArc(); haptic(8); });
     dom.zoomCluster.appendChild(b);
   });
   updateZoomCluster();
@@ -505,103 +506,79 @@ function updateZoomCluster() {
 function fmtZoom(z) { return (Math.abs(z - Math.round(z)) < 0.05 ? Math.round(z) : z.toFixed(1)); }
 function dispZoom() { return state.lens === "ultra" ? 0.5 : state.dig; }
 
-function sizeDial() {
-  const cv = dom.dial; if (!cv) return;
-  // 표시 크기를 JS가 명시적으로 지정(캔버스 속성 vs CSS aspect-ratio 충돌 방지)
-  const avail = (dom.stage && dom.stage.clientWidth) || window.innerWidth || 360;
-  const cssW = Math.min(Math.round(avail * 0.96), 520);
-  const cssH = Math.round(cssW * 0.34);          // 호 비율(검증된 374:127)
-  cv.style.width = cssW + "px";
-  cv.style.height = cssH + "px";
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = Math.max(2, Math.round(cssW * dpr));
-  cv.height = Math.max(2, Math.round(cssH * dpr));
+/* ─────────────────────── 줌 다이얼 (ToyDigi DOM 아크 이식) ───────────────────────
+   캔버스 대신 .za-tick DOM을 transform으로 호 배치 → 캔버스 표시 문제 원천 제거.
+   dispZoom()(이징된 현재 배율)을 중심으로 눈금 위치를 매 프레임 갱신. */
+const ZSP = 42;       // 1× 당 픽셀 (ToyDigi 동일)
+const ZA_CX = 140;    // 아크 반폭(.zoom-arc width 280의 절반)
+
+function buildZoomDial() {
+  if (!dom.zaDial) return;
+  dom.zaDial.innerHTML = "";
+  const start = state.lensIds && state.lensIds.ultra ? 0.5 : 1;   // 초광각 있으면 0.5부터
+  for (let v = start; v <= 10.001; v += 0.5) {
+    const val = Math.round(v * 10) / 10;
+    const major = Math.abs(val - Math.round(val)) < 0.01 || val === 0.5;
+    const t = document.createElement("div");
+    t.className = "za-tick" + (major ? " major" : "");
+    t.dataset.v = val;
+    if ([0.5, 1, 2, 3, 5, 10].includes(val)) {
+      const l = document.createElement("span"); l.className = "za-label"; l.textContent = fmtZoom(val) + "×"; t.appendChild(l);
+    }
+    dom.zaDial.appendChild(t);
+  }
 }
 
-const DIAL_MAJ = [0.5, 1, 2, 3, 5, 10], DIAL_MAJP = DIAL_MAJ.map(Math.log);
-function drawDial(z) {
-  const cv = dom.dial; if (!cv) return;
-  const ctx = cv.getContext("2d");
-  const W = cv.width, H = cv.height;
-  if (!W || !H) return;
-  const dpr = W / (cv.clientWidth || W);
-  ctx.clearRect(0, 0, W, H);
-  const cx = W / 2, apexY = 0.40 * H, R = 0.656 * W, cy = apexY + R;
-  const ANG = 0.80, WIN = 0.72, step = 0.06, cur = Math.log(z);
-  const alpha = (th) => 0.28 + 0.72 * Math.max(0, 1 - Math.abs(th) / WIN);
-  ctx.lineCap = "round";
-  const tick = (th, len, w, col) => {
-    const s = Math.sin(th), c = Math.cos(th);
-    ctx.strokeStyle = col; ctx.lineWidth = w;
-    ctx.beginPath(); ctx.moveTo(cx + R * s, cy - R * c); ctx.lineTo(cx + (R - len) * s, cy - (R - len) * c); ctx.stroke();
-  };
-  // 마이너 눈금(메이저 근처 제외)
-  for (let p = Math.ceil(Math.log(0.5) / step) * step; p <= Math.log(10) + 1e-6; p += step) {
-    const th = (p - cur) * ANG;
-    if (Math.abs(th) > WIN) continue;
-    if (DIAL_MAJP.some((mp) => Math.abs(mp - p) < step * 0.6)) continue;
-    tick(th, 0.13 * H, 1.7 * dpr, `rgba(255,255,255,${alpha(th)})`);
-  }
-  // 메이저 눈금 + 숫자
-  ctx.font = `700 ${Math.round(0.19 * H)}px -apple-system, system-ui, sans-serif`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (let i = 0; i < DIAL_MAJ.length; i++) {
-    const th = (DIAL_MAJP[i] - cur) * ANG;
-    if (Math.abs(th) > WIN) continue;
-    const a = alpha(th);
-    tick(th, 0.25 * H, 3.2 * dpr, `rgba(255,255,255,${a})`);
-    const lr = R - 0.38 * H;
-    ctx.fillStyle = `rgba(255,255,255,${a})`;
-    ctx.fillText(fmtZoom(DIAL_MAJ[i]), cx + lr * Math.sin(th), cy - lr * Math.cos(th));
-  }
-  // 중앙 인디케이터(옐로)
-  ctx.strokeStyle = "#ffd400"; ctx.lineWidth = 3.2 * dpr;
-  ctx.beginPath(); ctx.moveTo(cx, apexY - 0.12 * H); ctx.lineTo(cx, apexY + 0.05 * H); ctx.stroke();
-}
-
-/* 다이얼 1회 렌더(루프 의존 제거 — 핀치 즉시 그림) */
-function renderDial() {
-  if (!state.dialOn) return;
+function renderZoomArc() {
+  if (!dom.zaDial) return;
   const z = dispZoom();
-  drawDial(z);
-  if (dom.dialVal) dom.dialVal.textContent = fmtZoom(z) + "×";
-}
-
-let dialHideT = 0;
-function showDial() {
-  clearTimeout(dialHideT);
-  if (!dom.dialWrap) return;
-  if (!state.dialOn) {
-    state.dialOn = true;
-    sizeDial();
-    dom.dialWrap.classList.add("show");
-    if (dom.zoomCluster) dom.zoomCluster.classList.add("dim");
+  for (const t of dom.zaDial.children) {
+    const v = parseFloat(t.dataset.v);
+    const dx = (v - z) * ZSP;
+    if (Math.abs(dx) > ZA_CX) { t.style.display = "none"; continue; }
+    t.style.display = "block";
+    const r = dx / ZA_CX;
+    const y = r * r * 22;                                  // 포물선 호
+    t.style.transform = `translate(${dx}px,${y}px) rotate(${r * 14}deg)`;
+    t.classList.toggle("on", Math.abs(v - z) < 0.26);
   }
-  renderDial();                 // 핀치 감지 즉시 그려서 루프 타이밍과 무관하게 등장
-}
-function scheduleHideDial() {
-  clearTimeout(dialHideT);
-  dialHideT = setTimeout(() => {
-    state.dialOn = false; dom.dialWrap.classList.remove("show"); if (dom.zoomCluster) dom.zoomCluster.classList.remove("dim");
-  }, 1100);
+  if (dom.zaValue) dom.zaValue.textContent = fmtZoom(z) + "×";
 }
 
-/* 다이얼 직접 드래그(좌우) = 정밀 줌. 끌리는 눈금이 손가락을 따라옴 */
-(function dialDrag() {
-  let sx = 0, sz = 1, active = false;
-  const perPos = () => 0.656 * (dom.dial.clientWidth || 320) * 0.80;  // CSS px / log-unit
-  dom.dial.addEventListener("touchstart", (e) => {
-    active = true; sx = e.touches[0].clientX; sz = dispZoom(); showDial();
-  }, { passive: true });
-  dom.dial.addEventListener("touchmove", (e) => {
+let arcHideT = 0;
+function showZoomArc() {
+  if (!dom.zoomArc) return;
+  state.arcOn = true;
+  dom.zoomArc.classList.remove("hidden");
+  if (dom.zoomCluster) dom.zoomCluster.classList.add("dim");
+  renderZoomArc();
+  clearTimeout(arcHideT);
+}
+function scheduleHideArc() {
+  clearTimeout(arcHideT);
+  arcHideT = setTimeout(() => {
+    state.arcOn = false;
+    if (dom.zoomArc) dom.zoomArc.classList.add("hidden");
+    if (dom.zoomCluster) dom.zoomCluster.classList.remove("dim");
+  }, 1400);
+}
+
+/* 다이얼 직접 좌우 드래그 = 정밀 줌 (ToyDigi Pointer 방식) */
+(function arcDrag() {
+  if (!dom.zoomArc) return;
+  let x0 = 0, z0 = 1, active = false;
+  dom.zoomArc.addEventListener("pointerdown", (e) => {
+    active = true; x0 = e.clientX; z0 = dispZoom(); showZoomArc();
+    try { dom.zoomArc.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  dom.zoomArc.addEventListener("pointermove", (e) => {
     if (!active) return;
-    const dx = e.touches[0].clientX - sx;
-    requestZoom(Math.exp(Math.log(sz) - dx / perPos()));
-    showDial();
-  }, { passive: true });
-  const end = () => { if (active) { active = false; scheduleHideDial(); } };
-  dom.dial.addEventListener("touchend", end);
-  dom.dial.addEventListener("touchcancel", end);
+    requestZoom(z0 - (e.clientX - x0) / ZSP);             // 끌리는 눈금이 손가락을 따라옴
+    showZoomArc();
+  });
+  const up = () => { if (active) { active = false; scheduleHideArc(); } };
+  dom.zoomArc.addEventListener("pointerup", up);
+  dom.zoomArc.addEventListener("pointercancel", up);
 })();
 
 /* 뷰파인더 핀치 = 무단계 줌 */
@@ -612,13 +589,13 @@ function scheduleHideDial() {
     if (e.touches.length === 2) {
       e.preventDefault();                       // 사파리 기본 핀치줌 차단
       base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig };
-      showDial();                               // 핀치 즉시 다이얼 등장
+      showZoomArc();                            // 핀치 즉시 다이얼 등장
     }
   }, { passive: false });
   dom.view.addEventListener("touchmove", (e) => {
-    if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); showDial(); }
+    if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); showZoomArc(); }
   }, { passive: false });
-  const end = (e) => { if (e.touches.length < 2 && base) { base = null; scheduleHideDial(); } };
+  const end = (e) => { if (e.touches.length < 2 && base) { base = null; scheduleHideArc(); } };
   dom.view.addEventListener("touchend", end);
   dom.view.addEventListener("touchcancel", end);
 })();

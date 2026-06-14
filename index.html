@@ -33,13 +33,14 @@
       <!-- 촬영 플래시 -->
       <div id="flash" class="flash" aria-hidden="true"></div>
 
-      <!-- 줌 다이얼(핀치/드래그 시 등장): 눈금·숫자·중앙 인디케이터 -->
-      <div id="zoomDial" class="zoom-dial">
-        <div id="dialVal" class="dial-val">1×</div>
-        <canvas id="dial" class="dial-canvas"></canvas>
+      <!-- 줌 다이얼 (ToyDigi DOM 아크): 핀치/드래그 시 표시 -->
+      <div id="zoomArc" class="zoom-arc hidden">
+        <div id="zaValue" class="za-value">1×</div>
+        <div id="zaDial" class="za-dial"></div>
+        <div class="za-pointer"></div>
       </div>
 
-      <div class="ver">DICA v13</div>
+      <div class="ver">DICA v14</div>
     </div>
 
     <!-- 컨트롤 도크: 세로=하단 / 가로=우측 오버레이 -->

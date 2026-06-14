@@ -72,21 +72,34 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 }
 .zc-btn.active { color: var(--accent); background: rgba(255, 255, 255, 0.14); transform: scale(1.06); }
 
-/* 줌 다이얼 (핀치/드래그 시 등장) — 반투명 패널 위 곡선 눈금 */
-.zoom-dial {
-  position: absolute; z-index: 7; left: 50%; bottom: 10px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 12px 6px; border-radius: 20px;
-  background: rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
-  opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+/* 줌 다이얼 — ToyDigi DOM 아크 이식 (핀치/드래그 시 표시) */
+.zoom-arc {
+  position: absolute; left: 50%; bottom: 16px; width: 280px; height: 64px;
+  transform: translateX(-50%); pointer-events: auto; z-index: 7;
+  transition: opacity 0.2s; touch-action: none;
 }
-.zoom-dial.show { opacity: 1; pointer-events: auto; }
-.dial-val {
-  font-size: 1.5rem; font-weight: 800; color: var(--accent);
-  font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+.zoom-arc.hidden { display: block !important; opacity: 0; pointer-events: none; }
+.za-dial { position: absolute; inset: 0; }
+.za-tick {
+  position: absolute; left: 140px; top: 16px; width: 2px; height: 11px; margin-left: -1px;
+  border-radius: 1px; background: rgba(255, 255, 255, 0.55); transform-origin: 50% 0;
 }
-.dial-canvas { display: block; touch-action: none; }   /* 표시 크기는 sizeDial()이 지정 */
+.za-tick.major { height: 16px; background: rgba(255, 255, 255, 0.9); }
+.za-tick.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.za-label {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.85); white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.za-tick.on .za-label { color: var(--accent); }
+.za-pointer {
+  position: absolute; left: 50%; top: 4px; transform: translateX(-50%); width: 0; height: 0;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--accent);
+}
+.za-value {
+  position: absolute; left: 50%; top: -22px; transform: translateX(-50%);
+  font-size: 17px; font-weight: 700; color: var(--accent); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
 
 /* ── 도크(컨트롤) — 세로: 하단 바 ── */
 .dock {
@@ -193,7 +206,7 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
   .shutter-row { flex-direction: column; width: auto; max-width: none; padding: 0; gap: 22px; }
 
   /* 다이얼: 좌측 영역 하단 중앙(우측 도크와 안 겹침) */
-  .zoom-dial { left: calc(50% - 90px); bottom: calc(var(--sb) + 12px); }
+  .zoom-arc { left: calc(50% - 90px); bottom: calc(var(--sb) + 12px); }
   .ver { left: calc(var(--sl) + 12px); }
 }
 
