@@ -1,334 +1,508 @@
-/* ──────────────────────────────────────────────────────────────
-   DICA — Y2K Film Camera  (Vanilla JS, no build step)
+/* ──────────────────────────────────────────────────────────────────────────
+   DICA — Y2K Film Camera  (Vanilla JS · no build)
 
-   설계 메모
-   - 라이브 프리뷰: <video>에 가벼운 CSS filter만 적용(60fps, GPU). 매 프레임
-     픽셀 루프를 돌리면 모바일에서 끊기므로, 무거운 그레인/노이즈/날짜 스탬프는
-     "촬영 순간"에만 captureCanvas에서 1회 처리한다.
-   - 필터 알고리즘은 CamanJS / glfx.js 류 오픈소스 캔버스 필터의 보편적인 기법
-     (S-curve 대비, 채널 게인, 섀도 리프트, luma 그레인, vignette)을 참고.
-   ────────────────────────────────────────────────────────────── */
+   아키텍처
+   ───────
+   [getUserMedia: 후면 카메라 + 마이크]
+        │
+   <video> (숨김, 디코딩 전용, muted/playsinline)
+        │  매 프레임 ctx.filter 로 필터를 "구워서" 그림
+   <canvas#view> = 실제 뷰파인더 (보이는 화면)
+        ├── 사진: shotCanvas 에 고해상 1프레임 렌더 → toBlob
+        └── 영상: view.captureStream(30) + audioTrack → MediaRecorder → Blob
+
+   CSS 필터가 아니라 ctx.filter(GPU) 로 캔버스에 직접 구우므로
+   라이브·사진·영상이 항상 동일하게 보인다(WYSIWYG). MediaRecorder 로
+   캔버스를 녹화하는 오픈소스들의 표준 패턴을 차용.
+   ────────────────────────────────────────────────────────────────────────── */
 
 const $ = (s) => document.querySelector(s);
 
-const els = {
-  start:   $("#start"),
-  startBtn:$("#startBtn"),
-  startHint:$("#startHint"),
-  app:     $("#app"),
-  video:   $("#video"),
-  grain:   $("#grain"),
-  flash:   $("#flash"),
-  modeLabel:$("#modeLabel"),
-  modeBtns:document.querySelectorAll(".mode-btn"),
-  flipBtn: $("#flipBtn"),
+const dom = {
+  cam: $("#cam"),
+  video: $("#video"),
+  view: $("#view"),
+  stage: $(".stage"),
+  flash: $("#flash"),
+  recTimer: $("#recTimer"),
+  recTime: $("#recTimer span"),
+  modeSwitch: $("#modeSwitch"),
+  mBtns: document.querySelectorAll(".m-btn"),
+  wheel: $("#presetWheel"),
+  track: $("#pwTrack"),
   shutter: $("#shutter"),
-  galleryBtn:$("#galleryBtn"),
-  result:  $("#result"),
-  resultImg:$("#resultImg"),
-  retakeBtn:$("#retakeBtn"),
+  galleryBtn: $("#galleryBtn"),
+  flipBtn: $("#flipBtn"),
+  perm: $("#perm"),
+  permBtn: $("#permBtn"),
+  permErr: $("#permErr"),
+  result: $("#result"),
+  resultImg: $("#resultImg"),
+  resultVid: $("#resultVid"),
+  retakeBtn: $("#retakeBtn"),
   saveBtn: $("#saveBtn"),
-  canvas:  $("#captureCanvas"),
+  saveHint: $("#saveHint"),
+  shot: $("#shotCanvas"),
 };
+
+/* ── 필름 프리셋 ──────────────────────────────────────────────
+   filter: ctx.filter 문자열 / tint: 빛바램·웜 오버레이 / grain / stamp(날짜) */
+const PRESETS = [
+  { id: "RAW", label: "RAW", filter: "none", grain: 0, tint: null, stamp: false },
+  {
+    id: "DICA2000", label: "DI-CA 2000",
+    filter: "contrast(1.3) saturate(1.34) brightness(1.04)",
+    grain: 0.20, tint: { color: "#0a1a33", alpha: 0.06, blend: "screen" }, stamp: false,
+  },
+  {
+    id: "FILM90", label: "FILM 90s",
+    filter: "contrast(0.96) saturate(0.9) sepia(0.16) brightness(1.05)",
+    grain: 0.13, tint: { color: "#fff1d0", alpha: 0.10, blend: "soft-light" }, stamp: true,
+  },
+  {
+    id: "VINTAGE", label: "VINTAGE WARM",
+    filter: "contrast(0.9) saturate(0.85) sepia(0.34) brightness(1.06) hue-rotate(-8deg)",
+    grain: 0.15, tint: { color: "#ff8a3d", alpha: 0.13, blend: "soft-light" }, stamp: true,
+  },
+];
 
 const state = {
-  mode: "digicam",      // 'digicam' | 'film'
-  facing: "environment",// 후면 우선
+  mode: "photo",          // 'photo' | 'video'
+  preset: 0,
+  facing: "environment",
   stream: null,
+  audioOK: false,
+  recorder: null,
+  chunks: [],
+  recording: false,
+  recStart: 0,
+  recTick: null,
   lastBlob: null,
-  audioCtx: null,
+  lastType: "image",      // 'image' | 'video'
+  lastExt: "jpg",
+  rafId: 0,
+  landscape: false,
 };
 
-const MAX_EDGE = 1600;   // 결과물 긴 변 상한(성능/용량)
+const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
+const SHOT_CAP = 2200;    // 사진 캡처 긴 변 상한
+const vctx = dom.view.getContext("2d");
 
-/* ── 카메라 ─────────────────────────────────────────────── */
-async function startCamera() {
-  stopStream();
-  try {
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: state.facing },
-        width:  { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio: false,
-    });
-    els.video.srcObject = state.stream;
-    await els.video.play().catch(() => {});
-    els.start.classList.add("hidden");
-    els.app.classList.remove("hidden");
-  } catch (err) {
-    els.startHint.textContent = errorText(err);
-    els.startHint.classList.add("error");
+/* ── 그레인 타일(노이즈) — 1회 생성 후 패턴 재사용 ── */
+const noisePattern = (() => {
+  const n = document.createElement("canvas");
+  n.width = n.height = 96;
+  const nx = n.getContext("2d");
+  const img = nx.createImageData(96, 96);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = (Math.random() * 255) | 0;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
   }
+  nx.putImageData(img, 0, 0);
+  return vctx.createPattern(n, "repeat");
+})();
+
+/* ─────────────────────────── 미디어 획득 ─────────────────────────── */
+async function getStream(facing) {
+  const vid = { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+  // 1순위: 카메라+마이크 동시
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: vid, audio: true });
+    state.audioOK = s.getAudioTracks().length > 0;
+    return s;
+  } catch (e) {
+    // 마이크가 막혔거나 동시 획득 실패 → 비디오만 재시도(영상은 무음)
+    if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+    const s = await navigator.mediaDevices.getUserMedia({ video: vid });
+    state.audioOK = false;
+    return s;
+  }
+}
+
+async function acquire() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw Object.assign(new Error("unsupported"), { name: "NotSupportedError" });
+  }
+  stopStream();
+  const stream = await getStream(state.facing);
+  state.stream = stream;
+  dom.video.srcObject = stream;
+  await dom.video.play().catch(() => {});
+  hidePerm();
+  try { localStorage.setItem("dica_granted", "1"); } catch (_) {}
+  startLoop();
 }
 
 function stopStream() {
-  if (state.stream) {
-    state.stream.getTracks().forEach((t) => t.stop());
-    state.stream = null;
-  }
+  if (state.stream) { state.stream.getTracks().forEach((t) => t.stop()); state.stream = null; }
 }
 
-function errorText(err) {
+function errText(err) {
   if (location.protocol !== "https:" && location.hostname !== "localhost")
-    return "카메라는 HTTPS에서만 동작해요 (배포된 https 주소로 접속).";
-  if (err && (err.name === "NotAllowedError" || err.name === "SecurityError"))
-    return "카메라 권한이 거부됐어요. 설정 → Safari에서 허용해 주세요.";
-  if (err && err.name === "NotFoundError") return "사용 가능한 카메라가 없어요.";
-  return "카메라를 열 수 없어요: " + (err && err.name ? err.name : err);
+    return "카메라는 HTTPS에서만 동작해요(배포 주소로 접속).";
+  const n = err && err.name;
+  if (n === "NotAllowedError" || n === "SecurityError") return "권한이 거부됐어요. 설정 → Safari에서 카메라/마이크를 허용해 주세요.";
+  if (n === "NotFoundError") return "사용 가능한 카메라가 없어요.";
+  if (n === "NotReadableError") return "다른 앱이 카메라를 사용 중이에요. 닫고 다시 시도해 주세요.";
+  if (n === "NotSupportedError") return "이 브라우저는 카메라를 지원하지 않아요. Safari로 열어 주세요.";
+  return "카메라를 열 수 없어요: " + (n || err);
 }
 
-/* ── 모드 전환 ──────────────────────────────────────────── */
+function showPerm(msg) { dom.perm.classList.remove("hidden"); dom.permErr.textContent = msg || ""; }
+function hidePerm() { dom.perm.classList.add("hidden"); }
+
+/* 첫 진입: 권한이 이미 있으면 바로 뷰파인더, 처음이면 프라이머 노출 */
+async function init() {
+  layout();
+  buildWheel();
+  setMode("photo");
+  const granted = (() => { try { return localStorage.getItem("dica_granted") === "1"; } catch (_) { return false; } })();
+  if (granted) {
+    try { await acquire(); return; } catch (_) { /* 만료/거부 → 프라이머 */ }
+  }
+  showPerm();
+}
+
+/* ─────────────────────────── 렌더 루프 ─────────────────────────── */
+function layout() {
+  state.landscape = window.matchMedia("(orientation: landscape)").matches;
+  const r = dom.stage.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = r.width * dpr, h = r.height * dpr;
+  const long = Math.max(w, h);
+  if (long > LIVE_CAP) { const k = LIVE_CAP / long; w *= k; h *= k; }
+  dom.view.width = Math.max(2, Math.round(w));
+  dom.view.height = Math.max(2, Math.round(h));
+  // 휠 방향 전환
+  dom.wheel.classList.toggle("vertical", state.landscape);
+  dom.track.classList.toggle("vertical", state.landscape);
+  positionWheel(false);
+}
+
+function drawCover(ctx, src, cw, ch) {
+  const sw = src.videoWidth || src.width, sh = src.videoHeight || src.height;
+  if (!sw || !sh) return false;
+  const scale = Math.max(cw / sw, ch / sh);
+  const dw = sw * scale, dh = sh * scale;
+  ctx.drawImage(src, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+  return true;
+}
+
+/* 프레임 1장을 ctx에 합성 (라이브·사진·영상 공용) */
+function renderFrame(ctx, src, cw, ch, preset, animate) {
+  ctx.save();
+  ctx.filter = preset.filter || "none";
+  const ok = drawCover(ctx, src, cw, ch);
+  ctx.filter = "none";
+  ctx.restore();
+  if (!ok) return false;
+
+  if (preset.tint) {
+    ctx.save();
+    ctx.globalCompositeOperation = preset.tint.blend;
+    ctx.globalAlpha = preset.tint.alpha;
+    ctx.fillStyle = preset.tint.color;
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.restore();
+  }
+  if (preset.grain && noisePattern) {
+    ctx.save();
+    ctx.globalCompositeOperation = "overlay";
+    ctx.globalAlpha = preset.grain;
+    const ox = animate ? (Math.random() - 0.5) * 12 : 4;
+    const oy = animate ? (Math.random() - 0.5) * 12 : 4;
+    ctx.translate(ox, oy);
+    ctx.fillStyle = noisePattern;
+    ctx.fillRect(-12, -12, cw + 24, ch + 24);
+    ctx.restore();
+  }
+  if (preset.stamp) dateStamp(ctx, cw, ch);
+  return true;
+}
+
+function loop() {
+  state.rafId = requestAnimationFrame(loop);
+  if (dom.video.readyState < 2) return;
+  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true);
+}
+function startLoop() { if (!state.rafId) loop(); }
+function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
+
+/* 우하단 주황 날짜 스탬프 — '26 06 14 */
+function dateStamp(ctx, w, h) {
+  const d = new Date();
+  const p = (x) => String(x).padStart(2, "0");
+  const text = `'${String(d.getFullYear()).slice(2)} ${p(d.getMonth() + 1)} ${p(d.getDate())}`;
+  const size = Math.round(Math.max(w, h) * 0.042);
+  const pad = Math.round(size);
+  ctx.save();
+  ctx.font = `700 ${size}px "Courier New", ui-monospace, monospace`;
+  ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+  ctx.shadowColor = "rgba(255,120,0,0.9)"; ctx.shadowBlur = size * 0.5;
+  ctx.fillStyle = "#ff7a18"; ctx.fillText(text, w - pad, h - pad);
+  ctx.shadowBlur = 0; ctx.fillStyle = "#ffb066"; ctx.fillText(text, w - pad, h - pad);
+  ctx.restore();
+}
+
+/* ─────────────────────────── 프리셋 휠 ─────────────────────────── */
+function buildWheel() {
+  dom.track.innerHTML = "";
+  PRESETS.forEach((p, i) => {
+    const el = document.createElement("button");
+    el.className = "pw-item" + (i === state.preset ? " active" : "");
+    el.textContent = p.label;
+    el.addEventListener("click", () => selectPreset(i));
+    dom.track.appendChild(el);
+  });
+  positionWheel(false);
+}
+
+function positionWheel(animate) {
+  const items = dom.track.children;
+  if (!items.length) return;
+  dom.track.style.transition = animate ? "" : "none";
+  const el = items[state.preset];
+  if (state.landscape) {
+    const center = el.offsetTop + el.offsetHeight / 2;
+    dom.track.style.transform = `translateY(${-center}px)`;
+  } else {
+    const center = el.offsetLeft + el.offsetWidth / 2;
+    dom.track.style.transform = `translateX(${-center}px)`;
+  }
+  if (!animate) requestAnimationFrame(() => (dom.track.style.transition = ""));
+  [...items].forEach((it, i) => it.classList.toggle("active", i === state.preset));
+}
+
+function selectPreset(i) {
+  state.preset = (i + PRESETS.length) % PRESETS.length;
+  positionWheel(true);
+  haptic(8);
+}
+
+/* 휠 스와이프 (가로=X, 세로=Y) */
+(function wheelSwipe() {
+  let down = false, startP = 0, moved = 0;
+  const axis = () => (state.landscape ? "y" : "x");
+  const pt = (e) => (axis() === "x" ? (e.touches ? e.touches[0].clientX : e.clientX)
+                                    : (e.touches ? e.touches[0].clientY : e.clientY));
+  const onDown = (e) => { down = true; startP = pt(e); moved = 0; };
+  const onMove = (e) => { if (!down) return; moved = pt(e) - startP; };
+  const onUp = () => {
+    if (!down) return; down = false;
+    const TH = 28;
+    if (moved <= -TH) selectPreset(state.preset + 1);
+    else if (moved >= TH) selectPreset(state.preset - 1);
+  };
+  dom.wheel.addEventListener("touchstart", onDown, { passive: true });
+  dom.wheel.addEventListener("touchmove", onMove, { passive: true });
+  dom.wheel.addEventListener("touchend", onUp);
+})();
+
+/* ─────────────────────────── 모드 ─────────────────────────── */
 function setMode(mode) {
+  if (state.recording) return;
   state.mode = mode;
-  els.video.classList.remove("mode-digicam", "mode-film");
-  els.video.classList.add("mode-" + mode);
-  els.grain.classList.toggle("film", mode === "film");
-  els.modeLabel.textContent = mode === "film" ? "아날로그 필름" : "Y2K 디카";
-  els.modeBtns.forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  dom.mBtns.forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  dom.shutter.classList.toggle("video", mode === "video");
+  dom.shutter.classList.toggle("photo", mode === "photo");
 }
 
-/* ── 촬영 ───────────────────────────────────────────────── */
-function capture() {
-  const v = els.video;
-  if (!v.videoWidth) return;
+/* ─────────────────────────── 촬영: 사진 ─────────────────────────── */
+function takePhoto() {
+  const v = dom.video;
+  if (v.readyState < 2) return;
+  haptic([10]); fireFlash();
 
-  haptic([12]);
-  shutterFx();
+  const aspect = dom.view.width / dom.view.height;
+  let w, h;
+  const nLong = Math.min(Math.max(v.videoWidth, v.videoHeight) || 1280, SHOT_CAP);
+  if (aspect >= 1) { w = nLong; h = Math.round(nLong / aspect); }
+  else { h = nLong; w = Math.round(nLong * aspect); }
 
-  // 긴 변 기준 다운스케일
-  let w = v.videoWidth, h = v.videoHeight;
-  const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
-  w = Math.round(w * scale); h = Math.round(h * scale);
+  dom.shot.width = w; dom.shot.height = h;
+  const sctx = dom.shot.getContext("2d");
+  renderFrame(sctx, v, w, h, PRESETS[state.preset], false);
 
-  const cv = els.canvas;
-  cv.width = w; cv.height = h;
-  const ctx = cv.getContext("2d");
-  ctx.drawImage(v, 0, 0, w, h);
-
-  if (state.mode === "film") applyFilm(ctx, w, h);
-  else                       applyDigicam(ctx, w, h);
-
-  cv.toBlob((blob) => {
-    state.lastBlob = blob;
+  dom.shot.toBlob((blob) => {
+    if (!blob) return;
+    state.lastBlob = blob; state.lastType = "image"; state.lastExt = "jpg";
     const url = URL.createObjectURL(blob);
-    els.resultImg.src = url;
-    els.galleryBtn.style.backgroundImage = `url(${url})`;
-    els.result.classList.remove("hidden");
+    dom.galleryBtn.style.backgroundImage = `url(${url})`;
+    showResult(url, "image");
   }, "image/jpeg", 0.92);
 }
 
-/* ── 필터: Y2K 디카 ──────────────────────────────────────
-   거친 화질 + 높은 대비 + 자글자글 노이즈 (CCD 저화소 룩) */
-function applyDigicam(ctx, w, h) {
-  // 1) 저해상 소프트닝: 한 번 줄였다 키워 옛 CCD 느낌
-  softenViaDownscale(ctx, w, h, 0.78);
-
-  // 2) 픽셀 루프: S-curve 대비 + 채도 + RGB 노이즈
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const contrast = 1.28, sat = 1.18, noise = 26;
-  for (let i = 0; i < d.length; i += 4) {
-    let r = d[i], g = d[i + 1], b = d[i + 2];
-    // 대비
-    r = (r - 128) * contrast + 128;
-    g = (g - 128) * contrast + 128;
-    b = (b - 128) * contrast + 128;
-    // 채도
-    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-    r = gray + (r - gray) * sat;
-    g = gray + (g - gray) * sat;
-    b = gray + (b - gray) * sat;
-    // 살짝 차가운 CCD 캐스트
-    b += 6;
-    // 자글자글 노이즈(채널별)
-    r += (Math.random() - 0.5) * noise;
-    g += (Math.random() - 0.5) * noise;
-    b += (Math.random() - 0.5) * noise;
-    d[i] = clamp(r); d[i + 1] = clamp(g); d[i + 2] = clamp(b);
+/* ─────────────────────────── 촬영: 영상 ─────────────────────────── */
+function pickMime() {
+  const cands = [
+    "video/mp4", "video/mp4;codecs=h264,aac",
+    "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm",
+  ];
+  for (const m of cands) {
+    try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; } catch (_) {}
   }
-  ctx.putImageData(img, 0, 0);
-
-  vignette(ctx, w, h, 0.32);
+  return "";
 }
 
-/* ── 필터: 아날로그 필름 ─────────────────────────────────
-   빛바랜 톤 + 따뜻한 캐스트 + 고운 그레인 + 우하단 날짜 스탬프 */
-function applyFilm(ctx, w, h) {
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const contrast = 0.9, sat = 0.82, lift = 18, grain = 14;
-  for (let i = 0; i < d.length; i += 4) {
-    let r = d[i], g = d[i + 1], b = d[i + 2];
-    // 대비 낮추고 섀도 리프트(빛바램)
-    r = (r - 128) * contrast + 128 + lift;
-    g = (g - 128) * contrast + 128 + lift;
-    b = (b - 128) * contrast + 128 + lift;
-    // 채도 낮춤
-    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-    r = gray + (r - gray) * sat;
-    g = gray + (g - gray) * sat;
-    b = gray + (b - gray) * sat;
-    // 따뜻한 필름 캐스트
-    r *= 1.07; g *= 1.02; b *= 0.9;
-    // 고운 luma 그레인(채널 공통)
-    const n = (Math.random() - 0.5) * grain;
-    r += n; g += n; b += n;
-    d[i] = clamp(r); d[i + 1] = clamp(g); d[i + 2] = clamp(b);
+function startRecording() {
+  if (!window.MediaRecorder || !dom.view.captureStream) {
+    toast("이 브라우저는 영상 녹화를 지원하지 않아요. iOS는 최신 Safari가 필요해요.");
+    return;
   }
-  ctx.putImageData(img, 0, 0);
-
-  lightLeak(ctx, w, h);
-  vignette(ctx, w, h, 0.4);
-  dateStamp(ctx, w, h);
-}
-
-/* ── 공통 효과 ──────────────────────────────────────────── */
-function softenViaDownscale(ctx, w, h, factor) {
-  const tmp = document.createElement("canvas");
-  tmp.width = Math.round(w * factor);
-  tmp.height = Math.round(h * factor);
-  const tctx = tmp.getContext("2d");
-  tctx.drawImage(ctx.canvas, 0, 0, tmp.width, tmp.height);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(tmp, 0, 0, w, h);
-}
-
-function vignette(ctx, w, h, strength) {
-  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72);
-  g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, `rgba(0,0,0,${strength})`);
-  ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
-}
-
-function lightLeak(ctx, w, h) {
-  const g = ctx.createRadialGradient(w * 0.85, h * 0.12, 0, w * 0.85, h * 0.12, Math.max(w, h) * 0.5);
-  g.addColorStop(0, "rgba(255,120,30,0.22)");
-  g.addColorStop(1, "rgba(255,120,30,0)");
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
-}
-
-/* 우하단 주황 날짜 스탬프 — '26 06 14 (7-세그 느낌) */
-function dateStamp(ctx, w, h) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const text = `'${yy} ${mm} ${dd}`;
-
-  const size = Math.round(Math.max(w, h) * 0.045);
-  const pad = Math.round(size * 0.9);
-  ctx.save();
-  ctx.font = `700 ${size}px "DSEG7 Classic", "Courier New", ui-monospace, monospace`;
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-  // LED 번짐
-  ctx.shadowColor = "rgba(255,120,0,0.9)";
-  ctx.shadowBlur = size * 0.5;
-  ctx.fillStyle = "#ff7a18";
-  ctx.fillText(text, w - pad, h - pad);
-  // 코어를 한 번 더 찍어 선명하게
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#ffb066";
-  ctx.fillText(text, w - pad, h - pad);
-  ctx.restore();
-}
-
-const clamp = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
-
-/* ── 촬영 피드백 (햅틱/플래시/셔터음) ───────────────────── */
-function haptic(pattern) {
-  // iOS Safari는 navigator.vibrate 미지원 → Android에서만 동작(무해한 no-op)
-  if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (_) {} }
-}
-
-function shutterFx() {
-  els.flash.classList.remove("fire");
-  void els.flash.offsetWidth;      // reflow로 애니메이션 리셋
-  els.flash.classList.add("fire");
-  shutterSound();
-}
-
-/* iOS에서 진동이 안 되므로 짧은 셔터 '찰칵' 사운드로 촉감을 보완 */
-function shutterSound() {
+  let cstream;
   try {
-    if (!state.audioCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      state.audioCtx = new AC();
+    cstream = dom.view.captureStream(30);
+    if (state.audioOK) {
+      const a = state.stream.getAudioTracks()[0];
+      if (a) cstream.addTrack(a);
     }
-    const ac = state.audioCtx;
-    if (ac.state === "suspended") ac.resume();
-    const t = ac.currentTime;
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.type = "square";
-    osc.frequency.setValueAtTime(1200, t);
-    osc.frequency.exponentialRampToValueAtTime(220, t + 0.05);
-    gain.gain.setValueAtTime(0.08, t);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-    osc.connect(gain).connect(ac.destination);
-    osc.start(t); osc.stop(t + 0.1);
-  } catch (_) {}
+  } catch (e) {
+    cstream = state.stream; // 최후 폴백(필터 미적용 원본)
+  }
+
+  const mime = pickMime();
+  try {
+    state.recorder = new MediaRecorder(cstream, mime ? { mimeType: mime, videoBitsPerSecond: 6_000_000 } : undefined);
+  } catch (e) {
+    toast("녹화를 시작할 수 없어요: " + (e.name || e));
+    return;
+  }
+
+  state.chunks = [];
+  state.lastExt = (state.recorder.mimeType || mime).includes("mp4") ? "mp4" : "webm";
+  state.recorder.ondataavailable = (e) => { if (e.data && e.data.size) state.chunks.push(e.data); };
+  state.recorder.onstop = () => {
+    const blob = new Blob(state.chunks, { type: state.recorder.mimeType || mime || "video/webm" });
+    state.lastBlob = blob; state.lastType = "video";
+    showResult(URL.createObjectURL(blob), "video");
+  };
+  state.recorder.start(120);
+
+  state.recording = true;
+  dom.shutter.classList.add("recording");
+  lockControls(true);
+  startTimer();
+  haptic([14]);
 }
 
-/* ── 저장 (아이폰 사진첩) ────────────────────────────────
-   1순위: Web Share API → 공유 시트의 "이미지 저장"으로 사진첩 저장
-   2순위: 다운로드(데스크톱/안드로이드) */
-async function savePhoto() {
-  if (!state.lastBlob) return;
-  const fname = `DICA_${stamp()}.jpg`;
-  const file = new File([state.lastBlob], fname, { type: "image/jpeg" });
+function stopRecording() {
+  if (!state.recording) return;
+  state.recording = false;
+  dom.shutter.classList.remove("recording");
+  lockControls(false);
+  stopTimer();
+  try { state.recorder.stop(); } catch (_) {}
+  haptic([10]);
+}
 
+function lockControls(lock) {
+  dom.modeSwitch.style.opacity = lock ? 0.35 : 1;
+  dom.modeSwitch.style.pointerEvents = lock ? "none" : "auto";
+  dom.flipBtn.style.opacity = lock ? 0.35 : 1;
+  dom.flipBtn.style.pointerEvents = lock ? "none" : "auto";
+}
+
+function startTimer() {
+  dom.recTimer.classList.remove("hidden");
+  state.recStart = Date.now();
+  const upd = () => {
+    const s = Math.floor((Date.now() - state.recStart) / 1000);
+    dom.recTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  upd();
+  state.recTick = setInterval(upd, 250);
+}
+function stopTimer() { clearInterval(state.recTick); dom.recTimer.classList.add("hidden"); }
+
+/* ─────────────────────────── 셔터 ─────────────────────────── */
+function onShutter() {
+  if (state.mode === "photo") takePhoto();
+  else if (state.recording) stopRecording();
+  else startRecording();
+}
+
+function fireFlash() {
+  dom.flash.classList.remove("fire"); void dom.flash.offsetWidth; dom.flash.classList.add("fire");
+}
+
+/* ─────────────────────────── 저장 ─────────────────────────── */
+function showResult(url, type) {
+  dom.resultImg.hidden = type !== "image";
+  dom.resultVid.hidden = type !== "video";
+  if (type === "image") { dom.resultImg.src = url; }
+  else { dom.resultVid.src = url; }
+  dom.saveHint.innerHTML = type === "image"
+    ? "‘저장’ → 공유 시트에서 <b>이미지 저장</b>"
+    : "‘저장’ → 공유 시트에서 <b>비디오 저장</b>";
+  dom.result.classList.remove("hidden");
+}
+function closeResult() { dom.result.classList.add("hidden"); dom.resultVid.pause(); }
+
+async function save() {
+  if (!state.lastBlob) return;
+  const name = `DICA_${stamp()}.${state.lastExt}`;
+  const file = new File([state.lastBlob], name, { type: state.lastBlob.type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); return; }
     catch (e) { if (e && e.name === "AbortError") return; }
   }
-  // fallback
   const url = URL.createObjectURL(state.lastBlob);
-  const a = document.createElement("a");
-  a.href = url; a.download = fname;
+  const a = document.createElement("a"); a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function stamp() {
-  const n = new Date();
-  const p = (x) => String(x).padStart(2, "0");
+  const n = new Date(); const p = (x) => String(x).padStart(2, "0");
   return `${n.getFullYear()}${p(n.getMonth() + 1)}${p(n.getDate())}_${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
 }
 
-/* ── 이벤트 바인딩 ──────────────────────────────────────── */
-els.startBtn.addEventListener("click", () => { shutterSound(); startCamera(); });
-els.shutter.addEventListener("click", capture);
-els.modeBtns.forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
-els.flipBtn.addEventListener("click", () => {
+/* ─────────────────────────── 유틸 ─────────────────────────── */
+function haptic(p) { if (navigator.vibrate) { try { navigator.vibrate(p); } catch (_) {} } }
+
+let toastT = 0;
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.appendChild(t);
+    t.style.cssText = "position:fixed;left:50%;bottom:24%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 16px;border-radius:12px;font-size:.85rem;z-index:50;max-width:80%;text-align:center;backdrop-filter:blur(8px)"; }
+  t.textContent = msg; t.style.opacity = "1";
+  clearTimeout(toastT); toastT = setTimeout(() => (t.style.opacity = "0"), 3200);
+}
+
+/* ─────────────────────────── 이벤트 ─────────────────────────── */
+dom.permBtn.addEventListener("click", async () => {
+  dom.permErr.textContent = "";
+  try { await acquire(); } catch (e) { showPerm(errText(e)); }
+});
+dom.shutter.addEventListener("click", onShutter);
+dom.mBtns.forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+dom.flipBtn.addEventListener("click", async () => {
+  if (state.recording) return;
   state.facing = state.facing === "environment" ? "user" : "environment";
-  startCamera();
+  try { await acquire(); } catch (e) { toast(errText(e)); }
 });
-els.retakeBtn.addEventListener("click", () => els.result.classList.add("hidden"));
-els.saveBtn.addEventListener("click", savePhoto);
-els.galleryBtn.addEventListener("click", () => { if (state.lastBlob) els.result.classList.remove("hidden"); });
+dom.galleryBtn.addEventListener("click", () => { if (state.lastBlob) dom.result.classList.remove("hidden"); });
+dom.retakeBtn.addEventListener("click", closeResult);
+dom.saveBtn.addEventListener("click", save);
 
-// 탭이 백그라운드로 가면 카메라 정지(배터리/프라이버시), 복귀 시 재개
+let resizeT = 0;
+function onResize() { clearTimeout(resizeT); resizeT = setTimeout(layout, 120); }
+window.addEventListener("resize", onResize);
+window.addEventListener("orientationchange", () => setTimeout(layout, 250));
+
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stopStream();
-  else if (!els.app.classList.contains("hidden") && !state.stream) startCamera();
+  if (document.hidden) {
+    if (state.recording) stopRecording();
+    stopLoop(); stopStream();
+  } else if (localStorage.getItem("dica_granted") === "1" && !state.stream && dom.perm.classList.contains("hidden")) {
+    acquire().catch(() => showPerm(""));
+  }
 });
 
-setMode("digicam");
+init();
 
-/* ── PWA Service Worker 등록 ─────────────────────────────── */
+/* ── PWA ── */
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
-  });
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }
