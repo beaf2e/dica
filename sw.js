@@ -1,5 +1,5 @@
 /* DICA service worker — 앱 셸 캐시(오프라인 + 빠른 재실행) */
-const CACHE = "dica-v2";
+const CACHE = "dica-v3";
 const ASSETS = [
   "./",
   "./index.html",
