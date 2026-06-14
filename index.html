@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Y2K 디카 & 아날로그 필름 카메라 — 아이폰 홈 화면에 추가하고 앱처럼 쓰세요." />
+
+  <title>DICA — Y2K Film Camera</title>
+
+  <!-- PWA / iOS standalone -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="DICA" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ── 시작 오버레이 (카메라 권한은 사용자 탭으로 시작) ── -->
+  <section id="start" class="overlay start">
+    <div class="start-mark">DICA</div>
+    <p class="start-sub">Y2K 디카 &amp; 필름 카메라</p>
+    <button id="startBtn" class="start-btn">탭하여 시작</button>
+    <p id="startHint" class="start-hint">후면 카메라 접근을 허용해 주세요</p>
+  </section>
+
+  <!-- ── 뷰파인더 ── -->
+  <main id="app" class="app hidden">
+    <div class="viewport">
+      <video id="video" playsinline autoplay muted></video>
+      <div id="grain" class="grain" aria-hidden="true"></div>
+      <div class="framelines" aria-hidden="true"></div>
+      <div id="flash" class="flash" aria-hidden="true"></div>
+    </div>
+
+    <header class="topbar">
+      <span class="rec"><i class="rec-dot"></i>REC</span>
+      <span id="modeLabel" class="mode-label">Y2K 디카</span>
+      <span class="batt">▮▮▮</span>
+    </header>
+
+    <footer class="controls">
+      <div class="mode-switch" role="tablist">
+        <button class="mode-btn active" data-mode="digicam" role="tab">디카</button>
+        <button class="mode-btn" data-mode="film" role="tab">필름</button>
+      </div>
+
+      <div class="shutter-row">
+        <button id="flipBtn" class="side-btn" aria-label="카메라 전환">⟲</button>
+        <button id="shutter" class="shutter" aria-label="촬영"><span class="shutter-inner"></span></button>
+        <button id="galleryBtn" class="side-btn thumb" aria-label="최근 사진"></button>
+      </div>
+    </footer>
+  </main>
+
+  <!-- ── 결과 미리보기 / 저장 ── -->
+  <section id="result" class="overlay result hidden">
+    <img id="resultImg" class="result-img" alt="촬영 결과" />
+    <div class="result-bar">
+      <button id="retakeBtn" class="ghost-btn">다시</button>
+      <button id="saveBtn" class="primary-btn">사진 저장</button>
+    </div>
+    <p id="saveHint" class="save-hint">‘사진 저장’ → 공유 시트에서 <b>이미지 저장</b>을 누르면 사진첩에 들어가요.</p>
+  </section>
+
+  <canvas id="captureCanvas" hidden></canvas>
+  <script src="app.js"></script>
+</body>
+</html>
