@@ -1,7 +1,7 @@
 # DICA — Y2K Film Camera (PWA)
 
 아이폰 Safari에서 **홈 화면에 추가**해 앱처럼 쓰는 Y2K 디카 & 아날로그 필름 카메라.
-빌드 단계 없는 **순수 Vanilla JS + HTML5 Canvas**. Apple 개발자 비용 없이 **Vercel 무료 배포**.
+빌드 단계 없는 **순수 Vanilla JS + HTML5 Canvas**. Apple 개발자 비용 없이 **Cloudflare Pages 무료 배포**.
 
 ## 기능
 - **후면 카메라** 라이브 프리뷰 (`getUserMedia`, iOS Safari `playsinline`)
@@ -25,11 +25,13 @@ python3 -m http.server 8000      # http://localhost:8000
 python3 tools/generate_icons.py
 ```
 
-## 배포 (GitHub + Vercel, 무료)
+## 배포 (GitHub + Cloudflare Pages, 무료)
 1. GitHub 새 저장소 생성 후 push
-2. [vercel.com](https://vercel.com) → **Add New… → Project** → 이 저장소 Import
-3. Framework Preset: **Other** (빌드 설정 불필요, 정적 사이트), **Deploy**
-4. 발급된 `https://*.vercel.app` 주소를 아이폰 Safari로 열고 → 공유 → **홈 화면에 추가**
+2. Cloudflare 대시보드 → **Workers & Pages → Create → Pages → Connect to Git** → 이 저장소 선택
+3. 빌드 설정: Framework preset **None**, Build command **비움**, Build output directory **`/`** → **Save and Deploy**
+4. 발급된 `https://*.pages.dev` 주소를 아이폰 Safari로 열고 → 공유 → **홈 화면에 추가**
+
+> 정적 사이트라 빌드가 없습니다. `_headers`(서비스워커 no-cache·manifest content-type)는 Cloudflare Pages가 자동 적용합니다.
 
 ## 알려진 iOS 제약
 - iOS Safari는 `navigator.vibrate`(진동 API)를 **지원하지 않음** → 셔터 플래시 + 셔터음으로 촉감을 보완.

@@ -1,0 +1,8 @@
+# Cloudflare Pages 커스텀 헤더
+# 서비스워커는 항상 최신으로(스테일 SW 방지)
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# manifest content-type 보장
+/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
