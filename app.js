@@ -44,6 +44,7 @@ const dom = {
   saveHint: $("#saveHint"),
   shot: $("#shotCanvas"),
   fileInput: $("#fileInput"),
+  zoomPill: $("#zoomPill"),
 };
 
 /* ── 필름 프리셋 ──────────────────────────────────────────────
@@ -83,6 +84,7 @@ const state = {
   lastExt: "jpg",
   rafId: 0,
   landscape: false,
+  zoom: 1,
 };
 
 const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
@@ -158,6 +160,7 @@ async function init() {
   layout();
   buildWheel();
   setMode("photo");
+  setZoom(1);
   const granted = (() => { try { return localStorage.getItem("dica_granted") === "1"; } catch (_) { return false; } })();
   if (granted) {
     try { await acquire(); return; } catch (_) { /* 만료/거부 → 프라이머 */ }
@@ -181,21 +184,21 @@ function layout() {
   positionWheel(false);
 }
 
-function drawCover(ctx, src, cw, ch) {
+function drawCover(ctx, src, cw, ch, zoom) {
   const sw = src.videoWidth || src.naturalWidth || src.width;
   const sh = src.videoHeight || src.naturalHeight || src.height;
   if (!sw || !sh) return false;
-  const scale = Math.max(cw / sw, ch / sh);
+  const scale = Math.max(cw / sw, ch / sh) * (zoom || 1);  // 디지털 줌 = 중앙 크롭 확대
   const dw = sw * scale, dh = sh * scale;
   ctx.drawImage(src, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
   return true;
 }
 
 /* 프레임 1장을 ctx에 합성 (라이브·사진·영상 공용) */
-function renderFrame(ctx, src, cw, ch, preset, animate) {
+function renderFrame(ctx, src, cw, ch, preset, animate, zoom) {
   ctx.save();
   ctx.filter = preset.filter || "none";
-  const ok = drawCover(ctx, src, cw, ch);
+  const ok = drawCover(ctx, src, cw, ch, zoom || 1);
   ctx.filter = "none";
   ctx.restore();
   if (!ok) return false;
@@ -226,7 +229,7 @@ function renderFrame(ctx, src, cw, ch, preset, animate) {
 function loop() {
   state.rafId = requestAnimationFrame(loop);
   if (dom.video.readyState < 2) return;
-  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true);
+  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, state.zoom);
 }
 function startLoop() { if (!state.rafId) loop(); }
 function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
@@ -310,6 +313,34 @@ function setMode(mode) {
   dom.shutter.classList.toggle("photo", mode === "photo");
 }
 
+/* ─────────────────────────── 줌 (디지털) ───────────────────────────
+   뷰파인더 핀치 = 무단계, 알약 탭 = 1×→2×→3× 순환. 사진/영상에 동일 적용. */
+const ZOOM_MAX = 5, ZOOM_STEPS = [1, 2, 3];
+function setZoom(v) {
+  state.zoom = Math.min(ZOOM_MAX, Math.max(1, v));
+  const z = state.zoom;
+  dom.zoomPill.textContent = (Math.abs(z - Math.round(z)) < 0.05 ? Math.round(z) : z.toFixed(1)) + "×";
+  dom.zoomPill.classList.toggle("active", z > 1.02);
+}
+(function pinchZoom() {
+  let base = null;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  dom.stage.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) base = { d: dist(e.touches) || 1, z: state.zoom };
+  }, { passive: true });
+  dom.stage.addEventListener("touchmove", (e) => {
+    if (base && e.touches.length === 2) { e.preventDefault(); setZoom(base.z * (dist(e.touches) / base.d)); }
+  }, { passive: false });
+  const end = (e) => { if (e.touches.length < 2) base = null; };
+  dom.stage.addEventListener("touchend", end);
+  dom.stage.addEventListener("touchcancel", end);
+})();
+dom.zoomPill.addEventListener("click", () => {
+  const next = ZOOM_STEPS.find((s) => s > state.zoom + 0.05);
+  setZoom(next == null ? ZOOM_STEPS[0] : next);
+  haptic(8);
+});
+
 /* ─────────────────────────── 촬영: 사진 ─────────────────────────── */
 function takePhoto() {
   const v = dom.video;
@@ -324,7 +355,7 @@ function takePhoto() {
 
   dom.shot.width = w; dom.shot.height = h;
   const sctx = dom.shot.getContext("2d");
-  renderFrame(sctx, v, w, h, PRESETS[state.preset], false);
+  renderFrame(sctx, v, w, h, PRESETS[state.preset], false, state.zoom);
 
   dom.shot.toBlob((blob) => {
     if (!blob) return;
