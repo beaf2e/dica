@@ -68,7 +68,22 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 }
 .zoom-pill.active { color: var(--accent); }
 .zoom-pill:active { transform: translateX(-50%) scale(0.9); }
+.zoom-pill.dim { opacity: 0; pointer-events: none; }
 @media (orientation: landscape) { .zoom-pill { bottom: calc(var(--sb) + 14px); } }
+
+/* 줌 다이얼 */
+.zoom-dial {
+  position: absolute; z-index: 4; left: 50%; bottom: 8px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+}
+.zoom-dial.show { opacity: 1; pointer-events: auto; }
+.dial-val {
+  font-size: 1.05rem; font-weight: 800; color: var(--accent);
+  font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.dial-canvas { width: min(320px, 86vw); height: 90px; touch-action: none; }
+@media (orientation: landscape) { .zoom-dial { bottom: calc(var(--sb) + 8px); } }
 
 /* ── 도크(컨트롤) ── */
 .dock {

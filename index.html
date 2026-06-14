@@ -33,8 +33,14 @@
       <!-- 촬영 플래시 -->
       <div id="flash" class="flash" aria-hidden="true"></div>
 
-      <!-- 줌 표시(탭=배율 순환, 뷰파인더 핀치=무단계) -->
+      <!-- 줌 알약(평상시): 탭=배율 순환 -->
       <button id="zoomPill" class="zoom-pill" aria-label="줌">1×</button>
+
+      <!-- 줌 다이얼(핀치/드래그 시 등장): 눈금·숫자·중앙 인디케이터 -->
+      <div id="zoomDial" class="zoom-dial">
+        <div id="dialVal" class="dial-val">1×</div>
+        <canvas id="dial" class="dial-canvas"></canvas>
+      </div>
     </div>
 
     <!-- 하단(가로 시 우측) 컨트롤 도크 -->

@@ -45,6 +45,9 @@ const dom = {
   shot: $("#shotCanvas"),
   fileInput: $("#fileInput"),
   zoomPill: $("#zoomPill"),
+  dialWrap: $("#zoomDial"),
+  dialVal: $("#dialVal"),
+  dial: $("#dial"),
 };
 
 /* ── 필름 프리셋 ──────────────────────────────────────────────
@@ -90,6 +93,7 @@ const state = {
   dig: 1, digTarget: 1,         // 와이드 디지털 줌(이징값/목표값)
   zoomSteps: [1, 2, 3],
   switching: false,
+  dialOn: false,
 };
 
 const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
@@ -185,6 +189,7 @@ function layout() {
   if (long > LIVE_CAP) { const k = LIVE_CAP / long; w *= k; h *= k; }
   dom.view.width = Math.max(2, Math.round(w));
   dom.view.height = Math.max(2, Math.round(h));
+  sizeDial();
   // 휠 방향 전환
   dom.wheel.classList.toggle("vertical", state.landscape);
   dom.track.classList.toggle("vertical", state.landscape);
@@ -242,6 +247,7 @@ function loop() {
   const crop = state.lens === "ultra" ? 1 : state.dig;
   renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop);
   updateZoomPill();
+  if (state.dialOn) { const z = dispZoom(); drawDial(z); dom.dialVal.textContent = fmtZoom(z) + "×"; }
 }
 function startLoop() { if (!state.rafId) loop(); }
 function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
@@ -331,7 +337,7 @@ function setMode(mode) {
    · 입력  : 뷰파인더 핀치(무단계) + 줌 알약(상하 드래그=무단계 휠, 탭=배율 순환)
    canvas captureStream 은 그대로라 렌즈를 바꿔도 dom.video.srcObject 만 교체되어
    사진/영상에 동일하게 반영된다. */
-const ZOOM_MAX = 5;
+const ZOOM_MAX = 10;
 
 /* 권한 획득 후: 후면 카메라 목록에서 와이드/초광각 deviceId 탐지 */
 async function detectLenses() {
@@ -401,19 +407,102 @@ function cycleZoom() {
   const next = state.zoomSteps.find((s) => s > cur + 0.05);
   requestZoom(next == null ? state.zoomSteps[0] : next);
   haptic(8);
+  showDial(); scheduleHideDial();
 }
+
+/* ─────────────────────── 줌 다이얼 (곡선 눈금 UI) ───────────────────────
+   핀치/드래그 시 등장, 멈추면 서서히 사라짐. 메이저(0.5/1/2/3/5/10)는 정확한
+   log 위치에 눈금+숫자, 중앙 옐로 인디케이터가 현재 배율. PIL로 기하 선검증 후 포팅. */
+function fmtZoom(z) { return (Math.abs(z - Math.round(z)) < 0.05 ? Math.round(z) : z.toFixed(1)); }
+function dispZoom() { return state.lens === "ultra" ? 0.5 : state.dig; }
+
+function sizeDial() {
+  const cv = dom.dial, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(2, Math.round(cv.clientWidth * dpr));
+  cv.height = Math.max(2, Math.round(cv.clientHeight * dpr));
+}
+
+const DIAL_MAJ = [0.5, 1, 2, 3, 5, 10], DIAL_MAJP = DIAL_MAJ.map(Math.log);
+function drawDial(z) {
+  const cv = dom.dial, ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  if (!W) return;
+  const dpr = W / (cv.clientWidth || W);
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, apexY = 0.40 * H, R = 0.656 * W, cy = apexY + R;
+  const ANG = 0.80, WIN = 0.72, step = 0.06, cur = Math.log(z);
+  const alpha = (th) => 0.28 + 0.72 * Math.max(0, 1 - Math.abs(th) / WIN);
+  ctx.lineCap = "round";
+  const tick = (th, len, w, col) => {
+    const s = Math.sin(th), c = Math.cos(th);
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(cx + R * s, cy - R * c); ctx.lineTo(cx + (R - len) * s, cy - (R - len) * c); ctx.stroke();
+  };
+  // 마이너 눈금(메이저 근처 제외)
+  for (let p = Math.ceil(Math.log(0.5) / step) * step; p <= Math.log(10) + 1e-6; p += step) {
+    const th = (p - cur) * ANG;
+    if (Math.abs(th) > WIN) continue;
+    if (DIAL_MAJP.some((mp) => Math.abs(mp - p) < step * 0.6)) continue;
+    tick(th, 0.11 * H, 1.3 * dpr, `rgba(255,255,255,${alpha(th)})`);
+  }
+  // 메이저 눈금 + 숫자
+  ctx.font = `600 ${Math.round(0.17 * H)}px -apple-system, system-ui, sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < DIAL_MAJ.length; i++) {
+    const th = (DIAL_MAJP[i] - cur) * ANG;
+    if (Math.abs(th) > WIN) continue;
+    const a = alpha(th);
+    tick(th, 0.22 * H, 2.6 * dpr, `rgba(255,255,255,${a})`);
+    const lr = R - 0.38 * H;
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fillText(fmtZoom(DIAL_MAJ[i]), cx + lr * Math.sin(th), cy - lr * Math.cos(th));
+  }
+  // 중앙 인디케이터(옐로)
+  ctx.strokeStyle = "#ffd400"; ctx.lineWidth = 3.2 * dpr;
+  ctx.beginPath(); ctx.moveTo(cx, apexY - 0.12 * H); ctx.lineTo(cx, apexY + 0.05 * H); ctx.stroke();
+}
+
+let dialHideT = 0;
+function showDial() {
+  clearTimeout(dialHideT);
+  if (!state.dialOn) { state.dialOn = true; sizeDial(); dom.dialWrap.classList.add("show"); dom.zoomPill.classList.add("dim"); }
+}
+function scheduleHideDial() {
+  clearTimeout(dialHideT);
+  dialHideT = setTimeout(() => {
+    state.dialOn = false; dom.dialWrap.classList.remove("show"); dom.zoomPill.classList.remove("dim");
+  }, 1100);
+}
+
+/* 다이얼 직접 드래그(좌우) = 정밀 줌. 끌리는 눈금이 손가락을 따라옴 */
+(function dialDrag() {
+  let sx = 0, sz = 1, active = false;
+  const perPos = () => 0.656 * (dom.dial.clientWidth || 320) * 0.80;  // CSS px / log-unit
+  dom.dial.addEventListener("touchstart", (e) => {
+    active = true; sx = e.touches[0].clientX; sz = dispZoom(); showDial();
+  }, { passive: true });
+  dom.dial.addEventListener("touchmove", (e) => {
+    if (!active) return;
+    const dx = e.touches[0].clientX - sx;
+    requestZoom(Math.exp(Math.log(sz) - dx / perPos()));
+    showDial();
+  }, { passive: true });
+  const end = () => { if (active) { active = false; scheduleHideDial(); } };
+  dom.dial.addEventListener("touchend", end);
+  dom.dial.addEventListener("touchcancel", end);
+})();
 
 /* 뷰파인더 핀치 = 무단계 줌 */
 (function pinchZoom() {
   let base = null;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   dom.stage.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig };
+    if (e.touches.length === 2) { base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig }; showDial(); }
   }, { passive: true });
   dom.stage.addEventListener("touchmove", (e) => {
     if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); }
   }, { passive: false });
-  const end = (e) => { if (e.touches.length < 2) base = null; };
+  const end = (e) => { if (e.touches.length < 2 && base) { base = null; scheduleHideDial(); } };
   dom.stage.addEventListener("touchend", end);
   dom.stage.addEventListener("touchcancel", end);
 })();
@@ -428,11 +517,12 @@ function cycleZoom() {
   dom.zoomPill.addEventListener("touchmove", (e) => {
     if (!active) return;
     const dy = sy - e.touches[0].clientY;             // 위로 끌면 확대
-    if (Math.abs(dy) > 6) moved = true;
+    if (Math.abs(dy) > 6) { moved = true; showDial(); }
     requestZoom(sz + dy * 0.02);                      // ≈50px 당 1배
   }, { passive: true });
   dom.zoomPill.addEventListener("touchend", () => {
     if (active && !moved) cycleZoom();
+    else if (active) scheduleHideDial();
     active = false; dom.zoomPill._t = Date.now();
   });
   dom.zoomPill.addEventListener("click", () => {      // 데스크톱(비터치) 대응
