@@ -463,16 +463,16 @@ function drawDial(z) {
     const th = (p - cur) * ANG;
     if (Math.abs(th) > WIN) continue;
     if (DIAL_MAJP.some((mp) => Math.abs(mp - p) < step * 0.6)) continue;
-    tick(th, 0.11 * H, 1.3 * dpr, `rgba(255,255,255,${alpha(th)})`);
+    tick(th, 0.13 * H, 1.7 * dpr, `rgba(255,255,255,${alpha(th)})`);
   }
   // 메이저 눈금 + 숫자
-  ctx.font = `600 ${Math.round(0.17 * H)}px -apple-system, system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(0.19 * H)}px -apple-system, system-ui, sans-serif`;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let i = 0; i < DIAL_MAJ.length; i++) {
     const th = (DIAL_MAJP[i] - cur) * ANG;
     if (Math.abs(th) > WIN) continue;
     const a = alpha(th);
-    tick(th, 0.22 * H, 2.6 * dpr, `rgba(255,255,255,${a})`);
+    tick(th, 0.25 * H, 3.2 * dpr, `rgba(255,255,255,${a})`);
     const lr = R - 0.38 * H;
     ctx.fillStyle = `rgba(255,255,255,${a})`;
     ctx.fillText(fmtZoom(DIAL_MAJ[i]), cx + lr * Math.sin(th), cy - lr * Math.cos(th));

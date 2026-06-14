@@ -79,10 +79,11 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 }
 .zoom-dial.show { opacity: 1; pointer-events: auto; }
 .dial-val {
-  font-size: 1.05rem; font-weight: 800; color: var(--accent);
-  font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  font-size: 1.5rem; font-weight: 800; color: var(--accent);
+  font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+  margin-bottom: 2px;
 }
-.dial-canvas { width: min(320px, 86vw); height: 90px; touch-action: none; }
+.dial-canvas { width: min(480px, 96vw); aspect-ratio: 320 / 90; touch-action: none; }
 @media (orientation: landscape) { .zoom-dial { bottom: calc(var(--sb) + 8px); } }
 
 /* ── 도크(컨트롤) ── */

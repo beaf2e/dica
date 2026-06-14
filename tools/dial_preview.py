@@ -42,18 +42,18 @@ def render(z):
     while p <= math.log(10) + 1e-6:
         th = (p - cur) * ANG
         if abs(th) <= WIN and not any(abs(mp - p) < step * 0.6 for mp in majpos):
-            tick(th, 0.11 * Hs, 1.6, (255, 255, 255, alpha(th)))
+            tick(th, 0.13 * Hs, 1.7, (255, 255, 255, alpha(th)))
         p += step
 
     # 메이저 눈금 + 숫자(정확한 위치)
-    f = fnt(int(0.17 * Hs))
+    f = fnt(int(0.19 * Hs))
     for m, mp in zip(MAJORS, majpos):
         th = (mp - cur) * ANG
         if abs(th) > WIN:
             continue
         a = alpha(th)
-        tick(th, 0.22 * Hs, 3, (255, 255, 255, a))
-        lr = R - 0.22 * Hs - 0.16 * Hs
+        tick(th, 0.25 * Hs, 3.2, (255, 255, 255, a))
+        lr = R - 0.38 * Hs
         lx, ly = cx + lr * math.sin(th), cy - lr * math.cos(th)
         t = fmt(m)
         bb = d.textbbox((0, 0), t, font=f)
