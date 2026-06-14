@@ -436,9 +436,15 @@ function dispZoom() { return state.lens === "ultra" ? 0.5 : state.dig; }
 
 function sizeDial() {
   const cv = dom.dial; if (!cv) return;
+  // 표시 크기를 JS가 명시적으로 지정(캔버스 속성 vs CSS aspect-ratio 충돌 방지)
+  const avail = (dom.stage && dom.stage.clientWidth) || window.innerWidth || 360;
+  const cssW = Math.min(Math.round(avail * 0.96), 520);
+  const cssH = Math.round(cssW * 0.34);          // 호 비율(검증된 374:127)
+  cv.style.width = cssW + "px";
+  cv.style.height = cssH + "px";
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = Math.max(2, Math.round((cv.clientWidth || 320) * dpr));
-  cv.height = Math.max(2, Math.round((cv.clientHeight || 90) * dpr));
+  cv.width = Math.max(2, Math.round(cssW * dpr));
+  cv.height = Math.max(2, Math.round(cssH * dpr));
 }
 
 const DIAL_MAJ = [0.5, 1, 2, 3, 5, 10], DIAL_MAJP = DIAL_MAJ.map(Math.log);

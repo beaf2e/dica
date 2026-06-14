@@ -3,7 +3,7 @@
 import math, os
 from PIL import Image, ImageDraw, ImageFont
 
-W, H, SS = 320, 90, 3
+W, H, SS = 374, 127, 3
 MAJORS = [0.5, 1, 2, 3, 5, 10]
 ANG = 0.80
 WIN = 0.72

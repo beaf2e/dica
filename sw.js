@@ -1,5 +1,5 @@
 /* DICA service worker — network-first (버전 섞임 방지) */
-const CACHE = "dica-v9";
+const CACHE = "dica-v10";
 const ASSETS = [
   "./",
   "./index.html",

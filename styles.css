@@ -83,7 +83,7 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
   font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
   margin-bottom: 2px;
 }
-.dial-canvas { width: min(480px, 96vw); aspect-ratio: 320 / 90; touch-action: none; }
+.dial-canvas { display: block; touch-action: none; }   /* 표시 크기는 sizeDial()이 지정 */
 @media (orientation: landscape) { .zoom-dial { bottom: calc(var(--sb) + 8px); } }
 
 /* ── 도크(컨트롤) ── */
