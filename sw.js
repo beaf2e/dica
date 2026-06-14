@@ -1,5 +1,5 @@
-/* DICA service worker — 앱 셸 캐시(오프라인 + 빠른 재실행) */
-const CACHE = "dica-v7";
+/* DICA service worker — network-first (버전 섞임 방지) */
+const CACHE = "dica-v8";
 const ASSETS = [
   "./",
   "./index.html",
@@ -25,16 +25,17 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+/* 네트워크 우선: 온라인이면 항상 최신·일관 자산을 받아 캐시 갱신, 실패(오프라인) 시에만 캐시.
+   → 이전 cache-first 방식에서 HTML/JS 버전이 섞여 다이얼 요소가 누락되던 문제 해결. */
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    caches.match(e.request).then((cached) => {
-      const network = fetch(e.request).then((res) => {
+    fetch(e.request)
+      .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
+      })
+      .catch(() => caches.match(e.request))
   );
 });

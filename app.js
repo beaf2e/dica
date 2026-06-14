@@ -435,16 +435,18 @@ function fmtZoom(z) { return (Math.abs(z - Math.round(z)) < 0.05 ? Math.round(z)
 function dispZoom() { return state.lens === "ultra" ? 0.5 : state.dig; }
 
 function sizeDial() {
-  const cv = dom.dial, dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = Math.max(2, Math.round(cv.clientWidth * dpr));
-  cv.height = Math.max(2, Math.round(cv.clientHeight * dpr));
+  const cv = dom.dial; if (!cv) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(2, Math.round((cv.clientWidth || 320) * dpr));
+  cv.height = Math.max(2, Math.round((cv.clientHeight || 90) * dpr));
 }
 
 const DIAL_MAJ = [0.5, 1, 2, 3, 5, 10], DIAL_MAJP = DIAL_MAJ.map(Math.log);
 function drawDial(z) {
-  const cv = dom.dial, ctx = cv.getContext("2d");
+  const cv = dom.dial; if (!cv) return;
+  const ctx = cv.getContext("2d");
   const W = cv.width, H = cv.height;
-  if (!W) return;
+  if (!W || !H) return;
   const dpr = W / (cv.clientWidth || W);
   ctx.clearRect(0, 0, W, H);
   const cx = W / 2, apexY = 0.40 * H, R = 0.656 * W, cy = apexY + R;
@@ -483,7 +485,8 @@ function drawDial(z) {
 let dialHideT = 0;
 function showDial() {
   clearTimeout(dialHideT);
-  if (!state.dialOn) { state.dialOn = true; sizeDial(); dom.dialWrap.classList.add("show"); dom.zoomPill.classList.add("dim"); }
+  if (!dom.dialWrap) return;
+  if (!state.dialOn) { state.dialOn = true; sizeDial(); dom.dialWrap.classList.add("show"); if (dom.zoomPill) dom.zoomPill.classList.add("dim"); }
 }
 function scheduleHideDial() {
   clearTimeout(dialHideT);
@@ -784,5 +787,11 @@ init();
 
 /* ── PWA ── */
 if ("serviceWorker" in navigator) {
+  let refreshing = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || !hadController) return;   // 새 SW가 제어 시작하면 1회 새로고침(최초 설치는 제외)
+    refreshing = true; location.reload();
+  });
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }
