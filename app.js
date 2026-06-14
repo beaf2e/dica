@@ -196,13 +196,31 @@ function layout() {
   positionWheel(false);
 }
 
+/* 가로모드 회전 보정각 — iOS는 가로로 돌려도 세로 프레임을 주는 경우가 있어
+   기기 회전각의 반대로 90° 돌려 영상을 세운다. */
+function landscapeAngle() {
+  const a = (window.screen && screen.orientation && typeof screen.orientation.angle === "number")
+    ? screen.orientation.angle
+    : (typeof window.orientation === "number" ? window.orientation : 0);
+  return a === 90 ? -Math.PI / 2 : Math.PI / 2;   // 90→-90° / (270·-90)→+90°
+}
+
+/* 소스를 캔버스에 object-fit:cover 로 그림(비율 보존).
+   캔버스 방향(cw≥ch)과 프레임 방향(sw≥sh)이 어긋나면 ctx.rotate 로 90° 보정.
+   → 세로(일치)는 회전 안 함(기존 정상 유지), 가로 불일치만 보정(자가교정). */
 function drawCover(ctx, src, cw, ch, zoom) {
   const sw = src.videoWidth || src.naturalWidth || src.width;
   const sh = src.videoHeight || src.naturalHeight || src.height;
   if (!sw || !sh) return false;
-  const scale = Math.max(cw / sw, ch / sh) * (zoom || 1);  // 디지털 줌 = 중앙 크롭 확대
+  const rotate = (cw >= ch) !== (sw >= sh);
+  ctx.save();
+  ctx.translate(cw / 2, ch / 2);
+  if (rotate) ctx.rotate(landscapeAngle());
+  const tw = rotate ? ch : cw, th = rotate ? cw : ch;   // 회전 시 목표 박스 가로·세로 스왑
+  const scale = Math.max(tw / sw, th / sh) * (zoom || 1);
   const dw = sw * scale, dh = sh * scale;
-  ctx.drawImage(src, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+  ctx.drawImage(src, -dw / 2, -dh / 2, dw, dh);          // 중앙 정렬 크롭 확대
+  ctx.restore();
   return true;
 }
 
@@ -497,10 +515,14 @@ function scheduleHideDial() {
   let base = null;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   dom.stage.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) { base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig }; showDial(); }
-  }, { passive: true });
+    if (e.touches.length === 2) {
+      e.preventDefault();                       // 사파리 기본 핀치줌 차단
+      base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig };
+      showDial();                               // 핀치 즉시 다이얼 등장
+    }
+  }, { passive: false });
   dom.stage.addEventListener("touchmove", (e) => {
-    if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); }
+    if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); showDial(); }
   }, { passive: false });
   const end = (e) => { if (e.touches.length < 2 && base) { base = null; scheduleHideDial(); } };
   dom.stage.addEventListener("touchend", end);
@@ -736,10 +758,18 @@ dom.fileInput.addEventListener("change", (e) => {
 dom.retakeBtn.addEventListener("click", closeResult);
 dom.saveBtn.addEventListener("click", save);
 
+/* iOS Safari 페이지 핀치줌/더블탭줌 차단 — 우리 핸들러가 제스처를 확실히 받게 */
+["gesturestart", "gesturechange", "gestureend"].forEach((ev) =>
+  document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+
+/* 가로/세로 전환 시 캔버스 백킹을 실제 픽셀로 재계산 (iOS 타이밍 대비 다중 호출) */
 let resizeT = 0;
-function onResize() { clearTimeout(resizeT); resizeT = setTimeout(layout, 120); }
-window.addEventListener("resize", onResize);
-window.addEventListener("orientationchange", () => setTimeout(layout, 250));
+function relayoutSoon() { clearTimeout(resizeT); resizeT = setTimeout(layout, 120); }
+window.addEventListener("resize", relayoutSoon);
+window.addEventListener("orientationchange", () => { layout(); setTimeout(layout, 180); setTimeout(layout, 450); });
+if (window.visualViewport) window.visualViewport.addEventListener("resize", relayoutSoon);
+if (window.screen && screen.orientation && screen.orientation.addEventListener)
+  screen.orientation.addEventListener("change", () => setTimeout(layout, 180));
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
