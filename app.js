@@ -84,7 +84,12 @@ const state = {
   lastExt: "jpg",
   rafId: 0,
   landscape: false,
-  zoom: 1,
+  // 줌 / 렌즈
+  lens: "wide",                 // 'wide' | 'ultra'
+  lensIds: { wide: null, ultra: null },
+  dig: 1, digTarget: 1,         // 와이드 디지털 줌(이징값/목표값)
+  zoomSteps: [1, 2, 3],
+  switching: false,
 };
 
 const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
@@ -134,7 +139,9 @@ async function acquire() {
   await dom.video.play().catch(() => {});
   hidePerm();
   try { localStorage.setItem("dica_granted", "1"); } catch (_) {}
+  state.lens = "wide"; state.dig = state.digTarget = 1;
   startLoop();
+  await detectLenses();   // 권한 획득 후 렌즈 목록(초광각 포함) 탐지
 }
 
 function stopStream() {
@@ -160,7 +167,7 @@ async function init() {
   layout();
   buildWheel();
   setMode("photo");
-  setZoom(1);
+  updateZoomPill(true);
   const granted = (() => { try { return localStorage.getItem("dica_granted") === "1"; } catch (_) { return false; } })();
   if (granted) {
     try { await acquire(); return; } catch (_) { /* 만료/거부 → 프라이머 */ }
@@ -229,7 +236,12 @@ function renderFrame(ctx, src, cw, ch, preset, animate, zoom) {
 function loop() {
   state.rafId = requestAnimationFrame(loop);
   if (dom.video.readyState < 2) return;
-  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, state.zoom);
+  // 디지털 줌 이징 — 핀치/휠 입력을 매 프레임 부드럽게 따라감
+  state.dig += (state.digTarget - state.dig) * 0.22;
+  if (Math.abs(state.digTarget - state.dig) < 0.01) state.dig = state.digTarget;
+  const crop = state.lens === "ultra" ? 1 : state.dig;
+  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop);
+  updateZoomPill();
 }
 function startLoop() { if (!state.rafId) loop(); }
 function stopLoop() { cancelAnimationFrame(state.rafId); state.rafId = 0; }
@@ -313,33 +325,121 @@ function setMode(mode) {
   dom.shutter.classList.toggle("photo", mode === "photo");
 }
 
-/* ─────────────────────────── 줌 (디지털) ───────────────────────────
-   뷰파인더 핀치 = 무단계, 알약 탭 = 1×→2×→3× 순환. 사진/영상에 동일 적용. */
-const ZOOM_MAX = 5, ZOOM_STEPS = [1, 2, 3];
-function setZoom(v) {
-  state.zoom = Math.min(ZOOM_MAX, Math.max(1, v));
-  const z = state.zoom;
-  dom.zoomPill.textContent = (Math.abs(z - Math.round(z)) < 0.05 ? Math.round(z) : z.toFixed(1)) + "×";
-  dom.zoomPill.classList.toggle("active", z > 1.02);
+/* ─────────────────────── 줌 + 렌즈 전환 (0.5× 초광각) ───────────────────────
+   · 0.5×  : enumerateDevices 로 후면 '초광각' deviceId 를 찾아 하드웨어 전환
+   · 1×~5× : 와이드 렌즈에서 캔버스 중앙 크롭 디지털 줌(rAF 이징으로 부드럽게)
+   · 입력  : 뷰파인더 핀치(무단계) + 줌 알약(상하 드래그=무단계 휠, 탭=배율 순환)
+   canvas captureStream 은 그대로라 렌즈를 바꿔도 dom.video.srcObject 만 교체되어
+   사진/영상에 동일하게 반영된다. */
+const ZOOM_MAX = 5;
+
+/* 권한 획득 후: 후면 카메라 목록에서 와이드/초광각 deviceId 탐지 */
+async function detectLenses() {
+  state.lensIds = { wide: null, ultra: null };
+  try {
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const cur = state.stream && state.stream.getVideoTracks()[0];
+    const curId = cur && cur.getSettings ? cur.getSettings().deviceId : null;
+    state.lensIds.wide = curId || (cams[0] && cams[0].deviceId) || null;
+    if (state.facing === "environment") {
+      const back = cams.filter((d) => /back|rear|environment|후면/i.test(d.label));
+      const pool = back.length ? back : cams;
+      const ultra = pool.find((d) => /ultra.?wide|초광각|0\.5/i.test(d.label));
+      if (ultra && ultra.deviceId && ultra.deviceId !== curId) state.lensIds.ultra = ultra.deviceId;
+    }
+  } catch (_) {}
+  state.zoomSteps = state.lensIds.ultra ? [0.5, 1, 2, 3] : [1, 2, 3];
+  updateZoomPill(true);
 }
+
+/* 물리 렌즈 전환 (deviceId exact) */
+async function switchLens(which, dig) {
+  const id = state.lensIds[which];
+  if (state.switching || id == null || state.recording) return;
+  state.switching = true;
+  try {
+    const ns = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: id }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: state.audioOK,
+    });
+    const old = state.stream;
+    state.stream = ns; dom.video.srcObject = ns;
+    await dom.video.play().catch(() => {});
+    if (old) old.getTracks().forEach((t) => t.stop());
+    state.lens = which;
+    state.dig = state.digTarget = which === "ultra" ? 1 : Math.max(1, dig || 1);
+    haptic(12);
+  } catch (e) {
+    toast("렌즈 전환 실패: " + (e.name || e));
+  } finally {
+    state.switching = false;
+    updateZoomPill(true);
+  }
+}
+
+/* 연속 줌값 v(0.5~5)를 렌즈/디지털 줌으로 라우팅 (경계 히스테리시스) */
+function requestZoom(v) {
+  const hasUltra = state.lensIds.ultra && state.facing === "environment" && !state.recording;
+  if (hasUltra) {
+    if (v < 0.7 && state.lens !== "ultra") { switchLens("ultra"); return; }
+    if (v > 0.85 && state.lens === "ultra") { switchLens("wide", Math.max(1, v)); return; }
+  }
+  if (state.lens === "ultra") return;                 // 초광각에선 디지털 줌 고정(0.5×)
+  state.digTarget = Math.min(ZOOM_MAX, Math.max(1, v));
+}
+
+let lastZoomText = "";
+function updateZoomPill(force) {
+  const disp = state.lens === "ultra" ? 0.5 : state.dig;
+  const txt = (Math.abs(disp - Math.round(disp)) < 0.05 ? Math.round(disp) : disp.toFixed(1)) + "×";
+  if (force || txt !== lastZoomText) { dom.zoomPill.textContent = txt; lastZoomText = txt; }
+  dom.zoomPill.classList.toggle("active", disp < 0.95 || disp > 1.02);
+}
+
+function cycleZoom() {
+  const cur = state.lens === "ultra" ? 0.5 : state.digTarget;
+  const next = state.zoomSteps.find((s) => s > cur + 0.05);
+  requestZoom(next == null ? state.zoomSteps[0] : next);
+  haptic(8);
+}
+
+/* 뷰파인더 핀치 = 무단계 줌 */
 (function pinchZoom() {
   let base = null;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   dom.stage.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) base = { d: dist(e.touches) || 1, z: state.zoom };
+    if (e.touches.length === 2) base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig };
   }, { passive: true });
   dom.stage.addEventListener("touchmove", (e) => {
-    if (base && e.touches.length === 2) { e.preventDefault(); setZoom(base.z * (dist(e.touches) / base.d)); }
+    if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); }
   }, { passive: false });
   const end = (e) => { if (e.touches.length < 2) base = null; };
   dom.stage.addEventListener("touchend", end);
   dom.stage.addEventListener("touchcancel", end);
 })();
-dom.zoomPill.addEventListener("click", () => {
-  const next = ZOOM_STEPS.find((s) => s > state.zoom + 0.05);
-  setZoom(next == null ? ZOOM_STEPS[0] : next);
-  haptic(8);
-});
+
+/* 줌 알약: 상하 드래그 = 무단계(휠 느낌) · 탭 = 배율 순환 */
+(function zoomPillScrub() {
+  let sy = 0, sz = 1, moved = false, active = false;
+  dom.zoomPill.addEventListener("touchstart", (e) => {
+    active = true; moved = false; sy = e.touches[0].clientY;
+    sz = state.lens === "ultra" ? 0.5 : state.digTarget;
+  }, { passive: true });
+  dom.zoomPill.addEventListener("touchmove", (e) => {
+    if (!active) return;
+    const dy = sy - e.touches[0].clientY;             // 위로 끌면 확대
+    if (Math.abs(dy) > 6) moved = true;
+    requestZoom(sz + dy * 0.02);                      // ≈50px 당 1배
+  }, { passive: true });
+  dom.zoomPill.addEventListener("touchend", () => {
+    if (active && !moved) cycleZoom();
+    active = false; dom.zoomPill._t = Date.now();
+  });
+  dom.zoomPill.addEventListener("click", () => {      // 데스크톱(비터치) 대응
+    if (Date.now() - (dom.zoomPill._t || 0) < 600) return;
+    cycleZoom();
+  });
+})();
 
 /* ─────────────────────────── 촬영: 사진 ─────────────────────────── */
 function takePhoto() {
@@ -355,7 +455,7 @@ function takePhoto() {
 
   dom.shot.width = w; dom.shot.height = h;
   const sctx = dom.shot.getContext("2d");
-  renderFrame(sctx, v, w, h, PRESETS[state.preset], false, state.zoom);
+  renderFrame(sctx, v, w, h, PRESETS[state.preset], false, state.lens === "ultra" ? 1 : state.dig);
 
   dom.shot.toBlob((blob) => {
     if (!blob) return;

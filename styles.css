@@ -64,6 +64,7 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   border: 0.5px solid rgba(255, 255, 255, 0.18);
   transition: transform 0.12s, color 0.2s;
+  touch-action: none;
 }
 .zoom-pill.active { color: var(--accent); }
 .zoom-pill:active { transform: translateX(-50%) scale(0.9); }
