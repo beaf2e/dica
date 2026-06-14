@@ -50,25 +50,25 @@ const dom = {
   dial: $("#dial"),
 };
 
-/* ── 필름 프리셋 ──────────────────────────────────────────────
-   filter: ctx.filter 문자열 / tint: 빛바램·웜 오버레이 / grain / stamp(날짜) */
+/* ── 필름 프리셋 (ToyDigi 이식) ─────────────────────────────────
+   filter: ctx.filter 색보정 / vignette·grain·scanline·bloom·halation·chroma·leak·lofi: 0~1
+   tint: {color,alpha,blend} / date: 날짜각인 / border: null|'polaroid' */
 const PRESETS = [
-  { id: "RAW", label: "RAW", filter: "none", grain: 0, tint: null, stamp: false },
-  {
-    id: "DICA2000", label: "DI-CA 2000",
-    filter: "contrast(1.3) saturate(1.34) brightness(1.04)",
-    grain: 0.20, tint: { color: "#0a1a33", alpha: 0.06, blend: "screen" }, stamp: false,
-  },
-  {
-    id: "FILM90", label: "FILM 90s",
-    filter: "contrast(0.96) saturate(0.9) sepia(0.16) brightness(1.05)",
-    grain: 0.13, tint: { color: "#fff1d0", alpha: 0.10, blend: "soft-light" }, stamp: true,
-  },
-  {
-    id: "VINTAGE", label: "VINTAGE WARM",
-    filter: "contrast(0.9) saturate(0.85) sepia(0.34) brightness(1.06) hue-rotate(-8deg)",
-    grain: 0.15, tint: { color: "#ff8a3d", alpha: 0.13, blend: "soft-light" }, stamp: true,
-  },
+  { id: "raw",   label: "RAW",   filter: "none", vignette: 0, grain: 0, scanline: 0, bloom: 0, halation: 0, chroma: 0, leak: 0, lofi: 0, tint: null, date: false, border: null },
+  { id: "ccd",   label: "CCD",   filter: "contrast(1.12) saturate(1.18) brightness(1.03)", vignette: 0.28, grain: 0.10, scanline: 0, bloom: 0.18, halation: 0, chroma: 0.15, leak: 0, lofi: 0.25, tint: { color: "#0a2e3a", alpha: 0.06, blend: "screen" }, date: true, border: null },
+  { id: "ixus",  label: "IXUS",  filter: "contrast(1.08) saturate(1.12) brightness(1.05) sepia(0.08)", vignette: 0.22, grain: 0.08, scanline: 0, bloom: 0.22, halation: 0.25, chroma: 0, leak: 0, lofi: 0.25, tint: { color: "#ffae57", alpha: 0.07, blend: "soft-light" }, date: true, border: null },
+  { id: "night", label: "NIGHT", filter: "contrast(1.25) saturate(1.05) brightness(0.96)", vignette: 0.5, grain: 0.16, scanline: 0, bloom: 0.4, halation: 0.3, chroma: 0.2, leak: 0, lofi: 0.3, tint: { color: "#10204a", alpha: 0.12, blend: "multiply" }, date: true, border: null },
+  { id: "toy",   label: "TOY",   filter: "contrast(1.3) saturate(1.6) brightness(1.02) hue-rotate(-6deg)", vignette: 0.6, grain: 0.14, scanline: 0, bloom: 0.1, halation: 0, chroma: 0.15, leak: 0.2, lofi: 0.45, tint: { color: "#1d6e5a", alpha: 0.1, blend: "soft-light" }, date: false, border: null },
+  { id: "lomo",  label: "LOMO",  filter: "contrast(1.4) saturate(1.7) brightness(0.98)", vignette: 0.75, grain: 0.16, scanline: 0, bloom: 0.08, halation: 0, chroma: 0.25, leak: 0.3, lofi: 0.4, tint: { color: "#0b3b66", alpha: 0.14, blend: "multiply" }, date: false, border: null },
+  { id: "pink",  label: "PINK",  filter: "contrast(1.12) saturate(1.35) brightness(1.07) hue-rotate(8deg)", vignette: 0.3, grain: 0.12, scanline: 0, bloom: 0.25, halation: 0.2, chroma: 0, leak: 0.4, lofi: 0.35, tint: { color: "#ff5fb0", alpha: 0.12, blend: "soft-light" }, date: true, border: null },
+  { id: "dream", label: "DREAM", filter: "contrast(0.92) saturate(1.1) brightness(1.08) sepia(0.12)", vignette: 0.2, grain: 0.18, scanline: 0, bloom: 0.3, halation: 0.6, chroma: 0, leak: 0.15, lofi: 0.15, tint: { color: "#ffd9a8", alpha: 0.12, blend: "soft-light" }, date: false, border: null },
+  { id: "leak",  label: "LEAK",  filter: "contrast(1.05) saturate(1.2) brightness(1.05) sepia(0.1)", vignette: 0.3, grain: 0.2, scanline: 0, bloom: 0.15, halation: 0.2, chroma: 0, leak: 0.8, lofi: 0.2, tint: { color: "#ffb066", alpha: 0.1, blend: "soft-light" }, date: true, border: null },
+  { id: "gold",  label: "GOLD",  filter: "contrast(1.06) saturate(1.15) brightness(1.04) sepia(0.18)", vignette: 0.25, grain: 0.22, scanline: 0, bloom: 0.12, halation: 0.35, chroma: 0, leak: 0, lofi: 0.15, tint: { color: "#ffb74d", alpha: 0.1, blend: "soft-light" }, date: false, border: null },
+  { id: "fuji",  label: "FUJI",  filter: "contrast(1.1) saturate(1.1) brightness(1.02) hue-rotate(-10deg)", vignette: 0.24, grain: 0.2, scanline: 0, bloom: 0.1, halation: 0, chroma: 0, leak: 0, lofi: 0.15, tint: { color: "#1f8a5b", alpha: 0.08, blend: "soft-light" }, date: false, border: null },
+  { id: "exp",   label: "EXP",   filter: "contrast(0.95) saturate(0.9) brightness(1.06) sepia(0.12) hue-rotate(-12deg)", vignette: 0.35, grain: 0.28, scanline: 0, bloom: 0.14, halation: 0.2, chroma: 0, leak: 0.5, lofi: 0.2, tint: { color: "#c060a0", alpha: 0.12, blend: "soft-light" }, date: false, border: null },
+  { id: "bw",    label: "B&W",   filter: "grayscale(1) contrast(1.25) brightness(1.04)", vignette: 0.32, grain: 0.3, scanline: 0, bloom: 0.12, halation: 0, chroma: 0, leak: 0, lofi: 0.15, tint: null, date: false, border: null },
+  { id: "vhs",   label: "VHS",   filter: "contrast(1.15) saturate(1.3) brightness(1.02)", vignette: 0.3, grain: 0.12, scanline: 0.5, bloom: 0.16, halation: 0, chroma: 0.4, leak: 0, lofi: 0.5, tint: { color: "#2a5bd7", alpha: 0.1, blend: "screen" }, date: true, border: null },
+  { id: "pola",  label: "POLA",  filter: "contrast(1.0) saturate(1.05) brightness(1.08) sepia(0.1)", vignette: 0.2, grain: 0.16, scanline: 0, bloom: 0.18, halation: 0.2, chroma: 0, leak: 0, lofi: 0.2, tint: { color: "#eaf0d8", alpha: 0.12, blend: "soft-light" }, date: false, border: "polaroid" },
 ];
 
 const state = {
@@ -100,20 +100,39 @@ const LIVE_CAP = 1280;    // 라이브/녹화 캔버스 긴 변 상한
 const SHOT_CAP = 2200;    // 사진 캡처 긴 변 상한
 const vctx = dom.view.getContext("2d");
 
-/* ── 그레인 타일(노이즈) — 1회 생성 후 패턴 재사용 ── */
-const noisePattern = (() => {
-  const n = document.createElement("canvas");
-  n.width = n.height = 96;
-  const nx = n.getContext("2d");
-  const img = nx.createImageData(96, 96);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = (Math.random() * 255) | 0;
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-    img.data[i + 3] = 255;
+/* ── 그레인 타일 + 비네팅/스캔라인 캐시 (ToyDigi 효과 이식) ── */
+function makeGrainCanvas(w, h) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ictx = c.getContext("2d"); const img = ictx.createImageData(w, h); const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = 128 + (Math.random() * 2 - 1) * 90;
+    d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
   }
-  nx.putImageData(img, 0, 0);
-  return vctx.createPattern(n, "repeat");
-})();
+  ictx.putImageData(img, 0, 0); return c;
+}
+const GRAIN_TILES = [makeGrainCanvas(180, 180), makeGrainCanvas(180, 180), makeGrainCanvas(180, 180)];
+let grainFrame = 0;
+
+let _kitKey = "", _kit = null;
+function getKit(preset, w, h) {                 // 비네팅·스캔라인 래스터를 프리셋·크기별 캐시
+  const key = `${preset.id}|${w}x${h}`;
+  if (_kitKey === key && _kit) return _kit;
+  let vig = null;
+  if (preset.vignette > 0) {
+    vig = document.createElement("canvas"); vig.width = w; vig.height = h;
+    const c = vig.getContext("2d");
+    const g = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, `rgba(0,0,0,${preset.vignette})`);
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }
+  let scan = null;
+  if (preset.scanline > 0) {
+    scan = document.createElement("canvas"); scan.width = w; scan.height = h;
+    const c = scan.getContext("2d"); c.fillStyle = `rgba(0,0,0,${preset.scanline * 0.5})`;
+    for (let y = 0; y < h; y += 3) c.fillRect(0, y, w, 1);
+  }
+  _kitKey = key; _kit = { vig, scan }; return _kit;
+}
 
 /* ─────────────────────────── 미디어 획득 ─────────────────────────── */
 async function getStream(facing) {
@@ -225,34 +244,74 @@ function drawCover(ctx, src, cw, ch, zoom) {
 }
 
 /* 프레임 1장을 ctx에 합성 (라이브·사진·영상 공용) */
-function renderFrame(ctx, src, cw, ch, preset, animate, zoom) {
-  ctx.save();
-  ctx.filter = preset.filter || "none";
+function renderFrame(ctx, src, cw, ch, preset, animate, zoom, heavy) {
+  // 1) 색보정 필터 + cover(줌·가로회전 보정 포함)
+  ctx.save(); ctx.filter = preset.filter || "none";
   const ok = drawCover(ctx, src, cw, ch, zoom || 1);
-  ctx.filter = "none";
-  ctx.restore();
+  ctx.filter = "none"; ctx.restore();
   if (!ok) return false;
 
-  if (preset.tint) {
+  // 2) 색감 틴트
+  if (preset.tint && preset.tint.alpha > 0) {
     ctx.save();
-    ctx.globalCompositeOperation = preset.tint.blend;
-    ctx.globalAlpha = preset.tint.alpha;
-    ctx.fillStyle = preset.tint.color;
-    ctx.fillRect(0, 0, cw, ch);
+    ctx.globalCompositeOperation = preset.tint.blend || "soft-light";
+    ctx.globalAlpha = Math.min(1, preset.tint.alpha * 2.2);
+    ctx.fillStyle = preset.tint.color; ctx.fillRect(0, 0, cw, ch); ctx.restore();
+  }
+
+  // 3) bloom + halation (무거움 → 캡처 시에만)
+  if (heavy && "filter" in ctx) {
+    if (preset.bloom > 0) {
+      ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = preset.bloom * 0.5;
+      ctx.filter = "brightness(1.6) blur(6px)"; ctx.drawImage(ctx.canvas, 0, 0, cw, ch); ctx.restore();
+    }
+    if (preset.halation > 0) {                  // 하이라이트 둘레 따뜻한 붉은 글로우
+      ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = preset.halation * 0.6;
+      ctx.filter = "brightness(1.7) blur(9px) sepia(0.7) saturate(2.2) hue-rotate(-12deg)";
+      ctx.drawImage(ctx.canvas, 0, 0, cw, ch); ctx.restore();
+    }
+  }
+  // 4) 색수차(픽셀 단위 → 캡처 시에만)
+  if (heavy && preset.chroma > 0) {
+    const dd = Math.max(1, Math.round(cw * 0.0035 * preset.chroma * 3));
+    try {
+      const s = ctx.getImageData(0, 0, cw, ch), o = ctx.createImageData(cw, ch);
+      const a = s.data, b = o.data;
+      for (let y = 0; y < ch; y++) {
+        const row = y * cw;
+        for (let x = 0; x < cw; x++) {
+          const i = (row + x) * 4;
+          b[i] = a[(row + Math.min(cw - 1, x + dd)) * 4];
+          b[i + 1] = a[i + 1];
+          b[i + 2] = a[(row + Math.max(0, x - dd)) * 4 + 2];
+          b[i + 3] = a[i + 3];
+        }
+      }
+      ctx.putImageData(o, 0, 0);
+    } catch (e) {}
+  }
+  // 5) 라이트릭 (라이브·캡처 공통)
+  if (preset.leak > 0) {
+    const lx = cw * 0.9, ly = ch * 0.12;
+    const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, Math.max(cw, ch) * 0.65);
+    g.addColorStop(0, `rgba(255,135,45,${0.55 * preset.leak})`);
+    g.addColorStop(0.4, `rgba(255,60,80,${0.22 * preset.leak})`);
+    g.addColorStop(1, "rgba(255,0,0,0)");
+    ctx.save(); ctx.globalCompositeOperation = "screen"; ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch); ctx.restore();
+  }
+  // 6) 스캔라인 → 그레인 → 비네팅 (캐시 활용)
+  const k = getKit(preset, cw, ch);
+  if (k.scan) { ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.drawImage(k.scan, 0, 0); ctx.restore(); }
+  if (preset.grain > 0) {
+    ctx.save(); ctx.globalCompositeOperation = "overlay"; ctx.globalAlpha = Math.min(0.6, preset.grain);
+    const pat = ctx.createPattern(GRAIN_TILES[(animate ? grainFrame++ : 0) % GRAIN_TILES.length], "repeat");
+    if (pat) { ctx.fillStyle = pat; const o = animate ? (Math.random() * 60) | 0 : 0; ctx.translate(-o, -o); ctx.fillRect(o, o, cw, ch); }
     ctx.restore();
   }
-  if (preset.grain && noisePattern) {
-    ctx.save();
-    ctx.globalCompositeOperation = "overlay";
-    ctx.globalAlpha = preset.grain;
-    const ox = animate ? (Math.random() - 0.5) * 12 : 4;
-    const oy = animate ? (Math.random() - 0.5) * 12 : 4;
-    ctx.translate(ox, oy);
-    ctx.fillStyle = noisePattern;
-    ctx.fillRect(-12, -12, cw + 24, ch + 24);
-    ctx.restore();
-  }
-  if (preset.stamp) dateStamp(ctx, cw, ch);
+  if (k.vig) { ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.drawImage(k.vig, 0, 0); ctx.restore(); }
+
+  // 7) 날짜 스탬프
+  if (preset.date) dateStamp(ctx, cw, ch);
   return true;
 }
 
@@ -263,7 +322,7 @@ function loop() {
   state.dig += (state.digTarget - state.dig) * 0.22;
   if (Math.abs(state.digTarget - state.dig) < 0.01) state.dig = state.digTarget;
   const crop = state.lens === "ultra" ? 1 : state.dig;
-  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop);
+  renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop, false);
   updateZoomCluster();
   if (state.dialOn) renderDial();
 }
@@ -564,23 +623,37 @@ function scheduleHideDial() {
   dom.view.addEventListener("touchcancel", end);
 })();
 
+/* 폴라로이드 흰 테두리 (POLA 프리셋) */
+function applyPolaroid(srcCanvas) {
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const pad = Math.round(w * 0.05), bottom = Math.round(w * 0.18);
+  const fc = document.createElement("canvas");
+  fc.width = w + pad * 2; fc.height = h + pad + bottom;
+  const fx = fc.getContext("2d");
+  fx.fillStyle = "#f6f4ec"; fx.fillRect(0, 0, fc.width, fc.height);
+  fx.drawImage(srcCanvas, pad, pad);
+  return fc;
+}
+
 /* ─────────────────────────── 촬영: 사진 ─────────────────────────── */
 function takePhoto() {
   const v = dom.video;
   if (v.readyState < 2) return;
   haptic([10]); fireFlash();
+  const preset = PRESETS[state.preset];
 
   const aspect = dom.view.width / dom.view.height;
+  let nLong = Math.min(Math.max(v.videoWidth, v.videoHeight) || 1280, SHOT_CAP);
+  nLong = Math.max(420, Math.round(nLong * (1 - (preset.lofi || 0) * 0.4)));   // lofi = 저해상 똑딱이 화질
   let w, h;
-  const nLong = Math.min(Math.max(v.videoWidth, v.videoHeight) || 1280, SHOT_CAP);
   if (aspect >= 1) { w = nLong; h = Math.round(nLong / aspect); }
   else { h = nLong; w = Math.round(nLong * aspect); }
 
   dom.shot.width = w; dom.shot.height = h;
-  const sctx = dom.shot.getContext("2d");
-  renderFrame(sctx, v, w, h, PRESETS[state.preset], false, state.lens === "ultra" ? 1 : state.dig);
+  renderFrame(dom.shot.getContext("2d"), v, w, h, preset, false, state.lens === "ultra" ? 1 : state.dig, true);
 
-  dom.shot.toBlob((blob) => {
+  const out = preset.border === "polaroid" ? applyPolaroid(dom.shot) : dom.shot;
+  out.toBlob((blob) => {
     if (!blob) return;
     state.lastBlob = blob; state.lastType = "image"; state.lastExt = "jpg";
     showResult(URL.createObjectURL(blob), "image");
@@ -599,8 +672,10 @@ function importImage(file) {
     const k = Math.min(1, SHOT_CAP / Math.max(w, h));
     w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
     dom.shot.width = w; dom.shot.height = h;
-    renderFrame(dom.shot.getContext("2d"), img, w, h, PRESETS[state.preset], false);
-    dom.shot.toBlob((blob) => {
+    const preset = PRESETS[state.preset];
+    renderFrame(dom.shot.getContext("2d"), img, w, h, preset, false, 1, true);
+    const out = preset.border === "polaroid" ? applyPolaroid(dom.shot) : dom.shot;
+    out.toBlob((blob) => {
       URL.revokeObjectURL(url);
       if (!blob) { toast("이미지를 처리할 수 없어요."); return; }
       state.lastBlob = blob; state.lastType = "image"; state.lastExt = "jpg";
