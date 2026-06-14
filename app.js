@@ -43,6 +43,7 @@ const dom = {
   saveBtn: $("#saveBtn"),
   saveHint: $("#saveHint"),
   shot: $("#shotCanvas"),
+  fileInput: $("#fileInput"),
 };
 
 /* ── 필름 프리셋 ──────────────────────────────────────────────
@@ -181,7 +182,8 @@ function layout() {
 }
 
 function drawCover(ctx, src, cw, ch) {
-  const sw = src.videoWidth || src.width, sh = src.videoHeight || src.height;
+  const sw = src.videoWidth || src.naturalWidth || src.width;
+  const sh = src.videoHeight || src.naturalHeight || src.height;
   if (!sw || !sh) return false;
   const scale = Math.max(cw / sw, ch / sh);
   const dw = sw * scale, dh = sh * scale;
@@ -327,10 +329,32 @@ function takePhoto() {
   dom.shot.toBlob((blob) => {
     if (!blob) return;
     state.lastBlob = blob; state.lastType = "image"; state.lastExt = "jpg";
-    const url = URL.createObjectURL(blob);
-    dom.galleryBtn.style.backgroundImage = `url(${url})`;
-    showResult(url, "image");
+    showResult(URL.createObjectURL(blob), "image");
   }, "image/jpeg", 0.92);
+}
+
+/* ─────────────────────── 갤러리 가져오기 (사진 보관함) ───────────────────────
+   기존 사진을 선택 → 현재 프리셋 필터를 입혀 결과 화면에서 저장.
+   원본 비율을 그대로 보존(크롭 없음). */
+function importImage(file) {
+  if (!/^image\//.test(file.type)) { toast("이미지 파일만 가져올 수 있어요."); return; }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const k = Math.min(1, SHOT_CAP / Math.max(w, h));
+    w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
+    dom.shot.width = w; dom.shot.height = h;
+    renderFrame(dom.shot.getContext("2d"), img, w, h, PRESETS[state.preset], false);
+    dom.shot.toBlob((blob) => {
+      URL.revokeObjectURL(url);
+      if (!blob) { toast("이미지를 처리할 수 없어요."); return; }
+      state.lastBlob = blob; state.lastType = "image"; state.lastExt = "jpg";
+      showResult(URL.createObjectURL(blob), "image");
+    }, "image/jpeg", 0.92);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("이미지를 불러올 수 없어요."); };
+  img.src = url;
 }
 
 /* ─────────────────────────── 촬영: 영상 ─────────────────────────── */
@@ -482,7 +506,12 @@ dom.flipBtn.addEventListener("click", async () => {
   state.facing = state.facing === "environment" ? "user" : "environment";
   try { await acquire(); } catch (e) { toast(errText(e)); }
 });
-dom.galleryBtn.addEventListener("click", () => { if (state.lastBlob) dom.result.classList.remove("hidden"); });
+dom.galleryBtn.addEventListener("click", () => dom.fileInput.click());
+dom.fileInput.addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) importImage(f);
+  dom.fileInput.value = "";   // 같은 사진 다시 선택 가능하도록 리셋
+});
 dom.retakeBtn.addEventListener("click", closeResult);
 dom.saveBtn.addEventListener("click", save);
 
