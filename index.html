@@ -33,29 +33,31 @@
       <!-- 촬영 플래시 -->
       <div id="flash" class="flash" aria-hidden="true"></div>
 
-      <!-- 줌 알약(평상시): 탭=배율 순환 -->
-      <button id="zoomPill" class="zoom-pill" aria-label="줌">1×</button>
-
       <!-- 줌 다이얼(핀치/드래그 시 등장): 눈금·숫자·중앙 인디케이터 -->
       <div id="zoomDial" class="zoom-dial">
         <div id="dialVal" class="dial-val">1×</div>
         <canvas id="dial" class="dial-canvas"></canvas>
       </div>
 
-      <div class="ver">DICA v11</div>
+      <div class="ver">DICA v12</div>
     </div>
 
-    <!-- 하단(가로 시 우측) 컨트롤 도크 -->
+    <!-- 컨트롤 도크: 세로=하단 / 가로=우측 오버레이 -->
     <div class="dock">
-      <div id="modeSwitch" class="mode-switch">
-        <button class="m-btn active" data-mode="photo">PHOTO</button>
-        <button class="m-btn" data-mode="video">VIDEO</button>
-      </div>
+      <div class="dock-left">
+        <div id="modeSwitch" class="mode-switch">
+          <button class="m-btn active" data-mode="photo">PHOTO</button>
+          <button class="m-btn" data-mode="video">VIDEO</button>
+        </div>
 
-      <!-- 필름 프리셋 휠 (좌우/상하 스와이프) -->
-      <div id="presetWheel" class="preset-wheel">
-        <div id="pwTrack" class="pw-track"><!-- JS 주입 --></div>
-        <div class="pw-marker" aria-hidden="true"></div>
+        <!-- 필름 프리셋 휠 + 배율 버튼 (세로=가로나란히 / 가로=세로나열) -->
+        <div class="ctrl-mid">
+          <div id="presetWheel" class="preset-wheel">
+            <div id="pwTrack" class="pw-track"><!-- JS 주입 --></div>
+            <div class="pw-marker" aria-hidden="true"></div>
+          </div>
+          <div id="zoomCluster" class="zoom-cluster"><!-- JS: 0.5×/1×/2×/3× --></div>
+        </div>
       </div>
 
       <div class="shutter-row">

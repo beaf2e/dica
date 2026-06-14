@@ -44,7 +44,7 @@ const dom = {
   saveHint: $("#saveHint"),
   shot: $("#shotCanvas"),
   fileInput: $("#fileInput"),
-  zoomPill: $("#zoomPill"),
+  zoomCluster: $("#zoomCluster"),
   dialWrap: $("#zoomDial"),
   dialVal: $("#dialVal"),
   dial: $("#dial"),
@@ -171,7 +171,7 @@ async function init() {
   layout();
   buildWheel();
   setMode("photo");
-  updateZoomPill(true);
+  buildZoomCluster();
   const granted = (() => { try { return localStorage.getItem("dica_granted") === "1"; } catch (_) { return false; } })();
   if (granted) {
     try { await acquire(); return; } catch (_) { /* 만료/거부 → 프라이머 */ }
@@ -264,7 +264,7 @@ function loop() {
   if (Math.abs(state.digTarget - state.dig) < 0.01) state.dig = state.digTarget;
   const crop = state.lens === "ultra" ? 1 : state.dig;
   renderFrame(vctx, dom.video, dom.view.width, dom.view.height, PRESETS[state.preset], true, crop);
-  updateZoomPill();
+  updateZoomCluster();
   if (state.dialOn) renderDial();
 }
 function startLoop() { if (!state.rafId) loop(); }
@@ -373,7 +373,7 @@ async function detectLenses() {
     }
   } catch (_) {}
   state.zoomSteps = state.lensIds.ultra ? [0.5, 1, 2, 3] : [1, 2, 3];
-  updateZoomPill(true);
+  buildZoomCluster();
 }
 
 /* 물리 렌즈 전환 (deviceId exact) */
@@ -397,7 +397,7 @@ async function switchLens(which, dig) {
     toast("렌즈 전환 실패: " + (e.name || e));
   } finally {
     state.switching = false;
-    updateZoomPill(true);
+    updateZoomCluster();
   }
 }
 
@@ -412,20 +412,32 @@ function requestZoom(v) {
   state.digTarget = Math.min(ZOOM_MAX, Math.max(1, v));
 }
 
-let lastZoomText = "";
-function updateZoomPill(force) {
-  const disp = state.lens === "ultra" ? 0.5 : state.dig;
-  const txt = (Math.abs(disp - Math.round(disp)) < 0.05 ? Math.round(disp) : disp.toFixed(1)) + "×";
-  if (force || txt !== lastZoomText) { dom.zoomPill.textContent = txt; lastZoomText = txt; }
-  dom.zoomPill.classList.toggle("active", disp < 0.95 || disp > 1.02);
+/* iOS식 배율 버튼 클러스터 (0.5×·1×·2×·3×) — 탭하면 해당 배율로 점프 */
+function buildZoomCluster() {
+  if (!dom.zoomCluster) return;
+  dom.zoomCluster.innerHTML = "";
+  state.zoomSteps.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "zc-btn";
+    b.dataset.zoom = String(s);
+    b.textContent = fmtZoom(s) + "×";
+    b.addEventListener("click", () => { requestZoom(s); showDial(); scheduleHideDial(); haptic(8); });
+    dom.zoomCluster.appendChild(b);
+  });
+  updateZoomCluster();
 }
 
-function cycleZoom() {
-  const cur = state.lens === "ultra" ? 0.5 : state.digTarget;
-  const next = state.zoomSteps.find((s) => s > cur + 0.05);
-  requestZoom(next == null ? state.zoomSteps[0] : next);
-  haptic(8);
-  showDial(); scheduleHideDial();
+function updateZoomCluster() {
+  if (!dom.zoomCluster || !dom.zoomCluster.children.length) return;
+  const z = dispZoom();
+  let best = 0, bd = Infinity;
+  state.zoomSteps.forEach((s, i) => { const d = Math.abs(Math.log(s) - Math.log(z)); if (d < bd) { bd = d; best = i; } });
+  [...dom.zoomCluster.children].forEach((b, i) => {
+    const on = i === best;
+    b.classList.toggle("active", on);
+    const s = state.zoomSteps[i];
+    b.textContent = (on && Math.abs(z - s) > 0.05) ? fmtZoom(z) + "×" : fmtZoom(s) + "×"; // 활성 버튼은 현재값 표시
+  });
 }
 
 /* ─────────────────────── 줌 다이얼 (곡선 눈금 UI) ───────────────────────
@@ -504,14 +516,14 @@ function showDial() {
     state.dialOn = true;
     sizeDial();
     dom.dialWrap.classList.add("show");
-    if (dom.zoomPill) dom.zoomPill.classList.add("dim");
+    if (dom.zoomCluster) dom.zoomCluster.classList.add("dim");
   }
   renderDial();                 // 핀치 감지 즉시 그려서 루프 타이밍과 무관하게 등장
 }
 function scheduleHideDial() {
   clearTimeout(dialHideT);
   dialHideT = setTimeout(() => {
-    state.dialOn = false; dom.dialWrap.classList.remove("show"); dom.zoomPill.classList.remove("dim");
+    state.dialOn = false; dom.dialWrap.classList.remove("show"); if (dom.zoomCluster) dom.zoomCluster.classList.remove("dim");
   }, 1100);
 }
 
@@ -537,43 +549,19 @@ function scheduleHideDial() {
 (function pinchZoom() {
   let base = null;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-  dom.stage.addEventListener("touchstart", (e) => {
+  dom.view.addEventListener("touchstart", (e) => {
     if (e.touches.length === 2) {
       e.preventDefault();                       // 사파리 기본 핀치줌 차단
       base = { d: dist(e.touches) || 1, z: state.lens === "ultra" ? 0.5 : state.dig };
       showDial();                               // 핀치 즉시 다이얼 등장
     }
   }, { passive: false });
-  dom.stage.addEventListener("touchmove", (e) => {
+  dom.view.addEventListener("touchmove", (e) => {
     if (base && e.touches.length === 2) { e.preventDefault(); requestZoom(base.z * (dist(e.touches) / base.d)); showDial(); }
   }, { passive: false });
   const end = (e) => { if (e.touches.length < 2 && base) { base = null; scheduleHideDial(); } };
-  dom.stage.addEventListener("touchend", end);
-  dom.stage.addEventListener("touchcancel", end);
-})();
-
-/* 줌 알약: 상하 드래그 = 무단계(휠 느낌) · 탭 = 배율 순환 */
-(function zoomPillScrub() {
-  let sy = 0, sz = 1, moved = false, active = false;
-  dom.zoomPill.addEventListener("touchstart", (e) => {
-    active = true; moved = false; sy = e.touches[0].clientY;
-    sz = state.lens === "ultra" ? 0.5 : state.digTarget;
-  }, { passive: true });
-  dom.zoomPill.addEventListener("touchmove", (e) => {
-    if (!active) return;
-    const dy = sy - e.touches[0].clientY;             // 위로 끌면 확대
-    if (Math.abs(dy) > 6) { moved = true; showDial(); }
-    requestZoom(sz + dy * 0.02);                      // ≈50px 당 1배
-  }, { passive: true });
-  dom.zoomPill.addEventListener("touchend", () => {
-    if (active && !moved) cycleZoom();
-    else if (active) scheduleHideDial();
-    active = false; dom.zoomPill._t = Date.now();
-  });
-  dom.zoomPill.addEventListener("click", () => {      // 데스크톱(비터치) 대응
-    if (Date.now() - (dom.zoomPill._t || 0) < 600) return;
-    cycleZoom();
-  });
+  dom.view.addEventListener("touchend", end);
+  dom.view.addEventListener("touchcancel", end);
 })();
 
 /* ─────────────────────────── 촬영: 사진 ─────────────────────────── */

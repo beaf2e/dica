@@ -54,44 +54,50 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 .flash.fire { animation: flash 0.3s ease-out; }
 @keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
 
-/* 줌 알약 */
-.zoom-pill {
-  position: absolute; z-index: 3; left: 50%; bottom: 16px; transform: translateX(-50%);
-  min-width: 44px; height: 34px; padding: 0 11px; border-radius: 999px;
-  background: rgba(0, 0, 0, 0.42); color: #fff;
-  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.01em;
-  display: grid; place-items: center;
+/* 배율 버튼 클러스터 (0.5×/1×/2×/3×) — iOS식 */
+.zoom-cluster {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  background: rgba(0, 0, 0, 0.4); border-radius: 999px; padding: 4px;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  border: 0.5px solid rgba(255, 255, 255, 0.18);
-  transition: transform 0.12s, color 0.2s;
-  touch-action: none;
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  transition: opacity 0.2s;
 }
-.zoom-pill.active { color: var(--accent); }
-.zoom-pill:active { transform: translateX(-50%) scale(0.9); }
-.zoom-pill.dim { opacity: 0; pointer-events: none; }
-@media (orientation: landscape) { .zoom-pill { bottom: calc(var(--sb) + 14px); } }
+.zoom-cluster.dim { opacity: 0.25; }
+.zc-btn {
+  min-width: 30px; height: 30px; padding: 0 7px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.72); background: transparent;
+  font-variant-numeric: tabular-nums; touch-action: manipulation;
+  transition: color 0.18s, background 0.18s, transform 0.18s;
+}
+.zc-btn.active { color: var(--accent); background: rgba(255, 255, 255, 0.14); transform: scale(1.06); }
 
-/* 줌 다이얼 */
+/* 줌 다이얼 (핀치/드래그 시 등장) — 반투명 패널 위 곡선 눈금 */
 .zoom-dial {
-  position: absolute; z-index: 4; left: 50%; bottom: 8px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 0;
-  opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+  position: absolute; z-index: 7; left: 50%; bottom: 10px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 12px 6px; border-radius: 20px;
+  background: rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
 }
 .zoom-dial.show { opacity: 1; pointer-events: auto; }
 .dial-val {
   font-size: 1.5rem; font-weight: 800; color: var(--accent);
   font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
-  margin-bottom: 2px;
 }
 .dial-canvas { display: block; touch-action: none; }   /* 표시 크기는 sizeDial()이 지정 */
-@media (orientation: landscape) { .zoom-dial { bottom: calc(var(--sb) + 8px); } }
 
-/* ── 도크(컨트롤) ── */
+/* ── 도크(컨트롤) — 세로: 하단 바 ── */
 .dock {
   background: var(--dock);
-  display: flex; flex-direction: column; align-items: center; gap: 16px;
-  padding: 14px 0 calc(var(--sb) + 14px);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 12px 0 calc(var(--sb) + 14px);
 }
+.dock-left { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
+.ctrl-mid { display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; max-width: 380px; padding: 0 14px; }
+.ctrl-mid .preset-wheel { flex: 1 1 auto; max-width: 200px; }
+.ctrl-mid .zoom-cluster { flex: 0 0 auto; }
 
 /* 모드 스위치 */
 .mode-switch { display: flex; gap: 22px; }
@@ -154,40 +160,41 @@ button { font-family: inherit; color: #fff; background: none; border: none; }
 .thumb-btn { background-size: cover; background-position: center; border: 1px solid rgba(255, 255, 255, 0.25); }
 
 /* ──────────────────────────────────────────────
-   가로 모드 — 뷰파인더 풀스크린 + 우측 오버레이 컨트롤(애플 카메라식)
+   가로 모드 — 뷰파인더 풀스크린 + 우측 세로 오버레이 컨트롤(애플 카메라식)
    ────────────────────────────────────────────── */
 @media (orientation: landscape) {
-  .cam { display: block; }                       /* flex 해제 */
-  .stage { position: absolute; inset: 0; }       /* 뷰파인더가 화면 전체를 채움 */
+  .cam { display: block; }                          /* flex 해제 */
+  .stage { position: absolute; inset: 0; }          /* 뷰파인더가 화면 전체(100vw×100vh)를 채움 */
 
-  .dock {                                         /* 컨트롤은 우측에 오버레이(자리 안 차지) */
+  .dock {                                            /* 우측 오버레이(자리 차지 X): [좌:모드·프리셋·배율] [우:셔터] */
     position: absolute; top: 0; right: 0; bottom: 0; z-index: 6;
-    width: 150px; height: auto;
-    flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-    padding: 14px calc(var(--sr) + 10px) 14px 10px;
-    background: linear-gradient(to left, rgba(0, 0, 0, 0.6) 42%, rgba(0, 0, 0, 0));
-    border-top: none;
+    width: auto; height: auto;
+    flex-direction: row; align-items: center; justify-content: flex-end; gap: 16px;
+    padding: 14px calc(var(--sr) + 12px) 14px 18px;
+    background: linear-gradient(to left, rgba(0, 0, 0, 0.62) 48%, rgba(0, 0, 0, 0));
   }
-  /* 셔터를 세로 중앙에(order로 가운데), 모드 위·프리셋 아래 */
-  .mode-switch { order: 1; flex-direction: column; gap: 12px; }
-  .shutter-row { order: 2; flex-direction: column; width: auto; max-width: none; padding: 0; gap: 20px; }
-  .preset-wheel { order: 3; }
+  .dock-left { flex-direction: column; align-items: center; gap: 16px; width: auto; }
+  .ctrl-mid { flex-direction: column; align-items: center; gap: 12px; width: auto; max-width: none; padding: 0; }
+  .ctrl-mid .preset-wheel { flex: 0 0 auto; max-width: none; }
+  .mode-switch { flex-direction: column; gap: 12px; }
+  .zoom-cluster { flex-direction: column; }
 
+  /* 프리셋: 세로 휠 */
   .preset-wheel.vertical {
-    width: 118px; height: 140px; max-width: none;
+    width: 110px; height: 128px; max-width: none;
     -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
             mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
   }
   .preset-wheel.vertical .pw-track { flex-direction: column; left: 0; top: 50%; width: 100%; height: auto; }
-  .preset-wheel.vertical .pw-item { padding: 8px 0; height: auto; }
+  .preset-wheel.vertical .pw-item { padding: 7px 0; height: auto; }
   .preset-wheel.vertical .pw-marker { left: -1px; bottom: auto; top: 50%; transform: translateY(-50%); }
 
-  /* 줌 알약: 셔터 왼쪽(엄지 근처), 세로 중앙 */
-  .zoom-pill { left: auto; right: calc(var(--sr) + 162px); top: 50%; bottom: auto; transform: translateY(-50%); }
-  .zoom-pill:active { transform: translateY(-50%) scale(0.9); }
+  /* 우측 셔터 열: 카메라전환·셔터·앨범 세로 */
+  .shutter-row { flex-direction: column; width: auto; max-width: none; padding: 0; gap: 22px; }
 
-  /* 줌 다이얼: 풀스크린 하단 중앙(우측 도크와 안 겹침) */
-  .zoom-dial { left: calc(50% - 80px); bottom: calc(var(--sb) + 10px); }
+  /* 다이얼: 좌측 영역 하단 중앙(우측 도크와 안 겹침) */
+  .zoom-dial { left: calc(50% - 90px); bottom: calc(var(--sb) + 12px); }
+  .ver { left: calc(var(--sl) + 12px); }
 }
 
 /* 빌드 버전 뱃지(캐시 확인용) */
